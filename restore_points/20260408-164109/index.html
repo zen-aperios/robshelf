@@ -1,0 +1,275 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Infinite WebGL Bookshelf</title>
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <canvas id="scene"></canvas>
+
+  <aside class="panel">
+    <div class="panel__header">
+      <p class="eyebrow">WebGL Shelf</p>
+      <h1>Infinite Books</h1>
+      <p class="panel__copy">Scroll or drag to move the shelf. Use the controls to tune motion, rotation patterns, and export the current setup. Webflow CMS book items can supply their own cover and binder images.</p>
+    </div>
+
+    <div class="control-group">
+      <label class="control">
+        <span>Auto movement</span>
+        <input id="autoMove" type="checkbox" checked>
+      </label>
+      <label class="control">
+        <span>Pattern rotation</span>
+        <input id="patternRotate" type="checkbox" checked>
+      </label>
+      <label class="control">
+        <span>Static lean mix</span>
+        <input id="staticLean" type="checkbox" checked>
+      </label>
+      <label class="range">
+        <span>Rotation pattern</span>
+        <select id="rotationPattern">
+          <option value="sine">Sine</option>
+          <option value="alternating">Alternating</option>
+          <option value="alternateWide">Alternating wide</option>
+          <option value="cascade">Cascade</option>
+          <option value="fan">Fan</option>
+          <option value="blocks">Blocks</option>
+          <option value="leftAll">All left</option>
+          <option value="rightAll">All right</option>
+          <option value="outward">Outward</option>
+          <option value="inward">Inward</option>
+          <option value="zigzag">Zigzag</option>
+          <option value="sawtooth">Sawtooth</option>
+          <option value="steps">Steps</option>
+          <option value="pairs">Pairs</option>
+          <option value="triplets">Triplets</option>
+          <option value="pulse">Pulse</option>
+          <option value="helix">Helix</option>
+        </select>
+      </label>
+      <label class="control">
+        <span>Hover focus</span>
+        <input id="hoverFocus" type="checkbox" checked>
+      </label>
+      <label class="control">
+        <span>Hover resets rotation</span>
+        <input id="hoverResetRotation" type="checkbox" checked>
+      </label>
+      <label class="control">
+        <span>Hover domino tilt</span>
+        <input id="hoverDomino" type="checkbox">
+      </label>
+      <label class="control">
+        <span>Use imported GLB</span>
+        <input id="useImported" type="checkbox">
+      </label>
+      <label class="control">
+        <span>Auto fit count</span>
+        <input id="autoFitCount" type="checkbox">
+      </label>
+    </div>
+
+    <div class="control-group">
+      <label class="range">
+        <span>Size pattern</span>
+        <select id="sizePattern">
+          <option value="random">Random</option>
+          <option value="uniform">All same</option>
+          <option value="oddEven">Odd / even</option>
+          <option value="staggered">Staggered</option>
+          <option value="wave">Wave</option>
+          <option value="tapered">Tapered</option>
+          <option value="verticalStack">Vertical stack</option>
+        </select>
+      </label>
+      <label class="range">
+        <span>Speed <output id="speedValue">0.35</output></span>
+        <input id="speed" type="range" min="0" max="2" step="0.01" value="0.35">
+      </label>
+      <label class="range">
+        <span>Drag sensitivity <output id="dragValue">1.00</output></span>
+        <input id="dragSensitivity" type="range" min="0.2" max="2.5" step="0.01" value="1">
+      </label>
+      <label class="range">
+        <span>Spacing <output id="spacingValue">0.30</output></span>
+        <input id="spacing" type="range" min="0" max="3" step="0.01" value="0.3">
+      </label>
+      <label class="range">
+        <span>Book width <output id="widthScaleValue">2.60</output></span>
+        <input id="widthScale" type="range" min="0.6" max="2.6" step="0.01" value="2.6">
+      </label>
+      <label class="range">
+        <span>Book height <output id="heightScaleValue">1.05</output></span>
+        <input id="heightScale" type="range" min="0.6" max="1.8" step="0.01" value="1.05">
+      </label>
+      <label class="range">
+        <span>Book depth <output id="depthScaleValue">1.00</output></span>
+        <input id="depthScale" type="range" min="0.1" max="2.2" step="0.01" value="1">
+      </label>
+      <label class="range">
+        <span>Edge roundness <output id="edgeRoundnessValue">0.18</output></span>
+        <input id="edgeRoundness" type="range" min="0" max="1" step="0.01" value="0.18">
+      </label>
+      <label class="range">
+        <span>Matte finish <output id="matteValue">0.00</output></span>
+        <input id="matteAmount" type="range" min="0" max="1" step="0.01" value="0">
+      </label>
+      <label class="range">
+        <span>Static lean amount <output id="staticLeanValue">0.18</output></span>
+        <input id="staticLeanAmount" type="range" min="0" max="0.8" step="0.01" value="0.18">
+      </label>
+      <label class="range">
+        <span>Hover speed <output id="hoverSpeedValue">0.14</output></span>
+        <input id="hoverSpeed" type="range" min="0.02" max="0.4" step="0.01" value="0.14">
+      </label>
+      <label class="range">
+        <span>Return speed <output id="returnSpeedValue">0.10</output></span>
+        <input id="returnSpeed" type="range" min="0.02" max="0.4" step="0.01" value="0.10">
+      </label>
+      <label class="range">
+        <span>Wave tilt <output id="waveValue">0.00</output></span>
+        <input id="waveTilt" type="range" min="0" max="1.2" step="0.01" value="0">
+      </label>
+      <label class="range">
+        <span>Depth swing <output id="depthValue">0.00</output></span>
+        <input id="depthSwing" type="range" min="0" max="1" step="0.01" value="0">
+      </label>
+      <label class="range">
+        <span>Stack lean <output id="leanValue">0.00</output></span>
+        <input id="leanAngle" type="range" min="0" max="0.8" step="0.01" value="0">
+      </label>
+      <label class="range">
+        <span>Vertical shelf align <output id="shelfVerticalOffsetValue">0.00</output></span>
+        <input id="shelfVerticalOffset" type="range" min="-2" max="2" step="0.01" value="0">
+      </label>
+      <label class="range">
+        <span>Shelf rotation X <output id="shelfRotationXValue">0.00</output></span>
+        <input id="shelfRotationX" type="range" min="-3.14" max="3.14" step="0.01" value="0">
+      </label>
+      <label class="range">
+        <span>Shelf rotation Y <output id="shelfRotationYValue">0.00</output></span>
+        <input id="shelfRotationY" type="range" min="-3.14" max="3.14" step="0.01" value="0">
+      </label>
+      <label class="range">
+        <span>Shelf rotation Z <output id="shelfRotationZValue">0.00</output></span>
+        <input id="shelfRotationZ" type="range" min="-3.14" max="3.14" step="0.01" value="0">
+      </label>
+      <label class="range">
+        <span>Book depth (Z position) <output id="bookDepthOffsetValue">0.00</output></span>
+        <input id="bookDepthOffset" type="range" min="-5" max="3" step="0.1" value="0">
+      </label>
+      <label class="range">
+        <span>Depth align <output id="depthAlignValue">0.00</output></span>
+        <input id="depthAlign" type="range" min="0" max="1" step="0.01" value="0">
+      </label>
+      <label class="range">
+        <span>Book count <output id="countValue">36</output></span>
+        <input id="bookCount" type="range" min="8" max="60" step="1" value="36">
+      </label>
+    </div>
+
+    <div class="control-group">
+      <label class="control">
+        <span>Book model (.glb)</span>
+        <input id="glbFile" type="file" accept=".glb,model/gltf-binary">
+      </label>
+      <p class="panel__copy panel__copy--tight" id="importStatus">Using generated shelf books.</p>
+    </div>
+
+    <div class="control-group">
+      <label class="control">
+        <span>Front cover image</span>
+        <input id="faceImage" type="file" accept=".png,.webp,image/png,image/webp">
+      </label>
+      <label class="control">
+        <span>Back cover image</span>
+        <input id="backImage" type="file" accept=".png,.webp,image/png,image/webp">
+      </label>
+      <label class="control">
+        <span>Side binder image</span>
+        <input id="spineImage" type="file" accept=".png,.webp,image/png,image/webp">
+      </label>
+      <p class="panel__copy panel__copy--tight" id="artStatus">Using generated colors only.</p>
+      <p class="panel__copy panel__copy--tight">For Webflow, the help popup shows the exact CMS attributes for the front face, back face, and binding edge.</p>
+      <button id="webflowHelp" type="button" class="button--ghost">Webflow wiring help</button>
+    </div>
+
+    <div class="control-group">
+      <label class="range">
+        <span>Cover color</span>
+        <input id="coverColor" type="color" value="#c7612f">
+      </label>
+      <label class="range">
+        <span>Pages color</span>
+        <input id="pageColor" type="color" value="#f4ecdb">
+      </label>
+      <label class="range">
+        <span>Accent stripe</span>
+        <input id="accentColor" type="color" value="#1f2f66">
+      </label>
+    </div>
+
+    <div class="control-group">
+      <div class="panel__subhead">
+        <span>Book rotation overrides</span>
+        <button id="resetBookLeans" type="button" class="button--ghost">Reset</button>
+      </div>
+      <div id="bookLeanControls" class="book-lean-controls"></div>
+    </div>
+
+    <div class="button-row">
+      <button id="resetView" type="button">Reset View</button>
+      <button id="exportSettings" type="button">Export for Webflow</button>
+      <button id="exportImage" type="button">Export PNG</button>
+    </div>
+  </aside>
+
+  <div class="hint">Drag horizontally or use the mouse wheel.</div>
+
+  <div id="webflowHelpModal" class="modal" hidden>
+    <div id="webflowHelpBackdrop" class="modal__backdrop" aria-hidden="true"></div>
+    <section class="modal__dialog" role="dialog" aria-modal="true" aria-labelledby="webflowHelpTitle">
+      <div class="modal__header">
+        <div>
+          <p class="eyebrow">Webflow CMS</p>
+          <h2 id="webflowHelpTitle">Wire the book images</h2>
+        </div>
+        <button id="webflowHelpClose" type="button" class="button--ghost">Close</button>
+      </div>
+      <p class="panel__copy">Add three image fields to your CMS item, then bind each one to an image element inside the Collection Item and add the matching attribute.</p>
+      <p class="panel__copy panel__copy--tight">If you do not have a separate back image, reuse the front face. If you do not have a separate cover image for the binding edge, reuse the spine image you already have.</p>
+      <div class="modal__grid">
+        <article class="modal__card">
+          <h3>Front face</h3>
+          <p>Bind the CMS image field for the front cover to an Image element and add <code>data-bookshelf-cover</code>.</p>
+          <p class="modal__hint">This is the face you see when the book is closed and facing forward.</p>
+        </article>
+        <article class="modal__card">
+          <h3>Back face</h3>
+          <p>Bind the CMS image field for the back cover to an Image element and add <code>data-bookshelf-back</code>.</p>
+          <p class="modal__hint">If you do not have a separate back image, reuse the front face.</p>
+        </article>
+        <article class="modal__card">
+          <h3>Binding edge</h3>
+          <p>Bind the CMS image field for the spine or binding edge to an Image element and add <code>data-bookshelf-spine</code>.</p>
+          <p class="modal__hint">This is the thin edge facing the viewer when the shelf rotates.</p>
+        </article>
+      </div>
+      <div class="modal__code">
+        <p>CMS item wrapper:</p>
+        <code>&lt;div data-bookshelf-cms-item&gt;...&lt;/div&gt;</code>
+      </div>
+      <div class="modal__code" style="margin-top: 12px;">
+        <p>Suggested Webflow setup:</p>
+        <code>Front image field = cover<br>Back image field = back<br>Spine image field = binding edge</code>
+      </div>
+    </section>
+  </div>
+
+  <script type="module" src="./app.js"></script>
+</body>
+</html>
