@@ -363,46 +363,47 @@ const controls = {
 };
 
 applyStartupControls(STARTUP_SETTINGS);
+const hasControlPanel = Boolean(controls.dragSensitivity);
 
 const state = {
   offset: Number(STARTUP_SETTINGS.offset ?? 0),
   velocity: 0,
   minSpacing: 0,
-  dragSensitivity: Number(controls.dragSensitivity.value),
-  spacing: Number(controls.spacing.value),
-  autoMove: controls.autoMove.checked,
-  patternRotate: controls.patternRotate.checked,
-  staticLean: controls.staticLean.checked,
-  rotationPattern: controls.rotationPattern.value,
-  hoverFocus: controls.hoverFocus.checked,
-  hoverResetRotation: controls.hoverResetRotation.checked,
-  hoverDomino: controls.hoverDomino.checked,
-  useImported: controls.useImported.checked,
-  autoFitCount: controls.autoFitCount.checked,
-  sizePattern: controls.sizePattern.value,
-  widthScale: Number(controls.widthScale.value),
-  heightScale: Number(controls.heightScale.value),
-  depthScale: Number(controls.depthScale.value),
-  edgeRoundness: Number(controls.edgeRoundness.value),
-  matteAmount: Number(controls.matteAmount.value),
-  staticLeanAmount: Number(controls.staticLeanAmount.value),
-  hoverSpeed: Number(controls.hoverSpeed.value),
-  returnSpeed: Number(controls.returnSpeed.value),
-  speed: Number(controls.speed.value),
-  waveTilt: Number(controls.waveTilt.value),
-  depthSwing: Number(controls.depthSwing.value),
-  leanAngle: Number(controls.leanAngle.value),
-  shelfVerticalOffset: Number(controls.shelfVerticalOffset.value),
-  shelfRotationX: Number(controls.shelfRotationX.value),
-  shelfRotationY: Number(controls.shelfRotationY.value),
-  shelfRotationZ: Number(controls.shelfRotationZ.value),
-  bookDepthOffset: Number(controls.bookDepthOffset.value),
-  depthAlign: Number(controls.depthAlign.value),
-  bookCount: Number(controls.bookCount.value),
+  dragSensitivity: Number(STARTUP_SETTINGS.dragSensitivity),
+  spacing: Number(STARTUP_SETTINGS.spacing),
+  autoMove: Boolean(STARTUP_SETTINGS.autoMove),
+  patternRotate: Boolean(STARTUP_SETTINGS.patternRotate),
+  staticLean: Boolean(STARTUP_SETTINGS.staticLean),
+  rotationPattern: STARTUP_SETTINGS.rotationPattern,
+  hoverFocus: Boolean(STARTUP_SETTINGS.hoverFocus),
+  hoverResetRotation: Boolean(STARTUP_SETTINGS.hoverResetRotation),
+  hoverDomino: Boolean(STARTUP_SETTINGS.hoverDomino),
+  useImported: Boolean(STARTUP_SETTINGS.useImported),
+  autoFitCount: Boolean(STARTUP_SETTINGS.autoFitCount),
+  sizePattern: STARTUP_SETTINGS.sizePattern,
+  widthScale: Number(STARTUP_SETTINGS.widthScale),
+  heightScale: Number(STARTUP_SETTINGS.heightScale),
+  depthScale: Number(STARTUP_SETTINGS.depthScale),
+  edgeRoundness: Number(STARTUP_SETTINGS.edgeRoundness),
+  matteAmount: Number(STARTUP_SETTINGS.matteAmount),
+  staticLeanAmount: Number(STARTUP_SETTINGS.staticLeanAmount),
+  hoverSpeed: Number(STARTUP_SETTINGS.hoverSpeed),
+  returnSpeed: Number(STARTUP_SETTINGS.returnSpeed),
+  speed: Number(STARTUP_SETTINGS.speed),
+  waveTilt: Number(STARTUP_SETTINGS.waveTilt),
+  depthSwing: Number(STARTUP_SETTINGS.depthSwing),
+  leanAngle: Number(STARTUP_SETTINGS.leanAngle),
+  shelfVerticalOffset: Number(STARTUP_SETTINGS.shelfVerticalOffset),
+  shelfRotationX: Number(STARTUP_SETTINGS.shelfRotationX),
+  shelfRotationY: Number(STARTUP_SETTINGS.shelfRotationY),
+  shelfRotationZ: Number(STARTUP_SETTINGS.shelfRotationZ),
+  bookDepthOffset: Number(STARTUP_SETTINGS.bookDepthOffset),
+  depthAlign: Number(STARTUP_SETTINGS.depthAlign),
+  bookCount: Number(STARTUP_SETTINGS.bookCount),
   colors: {
-    cover: controls.coverColor.value,
-    pages: controls.pageColor.value,
-    accent: controls.accentColor.value,
+    cover: STARTUP_SETTINGS.colors.cover,
+    pages: STARTUP_SETTINGS.colors.pages,
+    accent: STARTUP_SETTINGS.colors.accent,
   },
   pointerDown: false,
   lastPointerX: 0,
@@ -417,7 +418,7 @@ const state = {
   artBuildSerial: 0,
   importedMesh: null,
   importedFileName: STARTUP_SETTINGS.importedFileName || "",
-  bookRotationOverrides: normalizeBookRotationOverrides(STARTUP_SETTINGS.bookRotationOverrides, Number(controls.bookCount.value)),
+  bookRotationOverrides: normalizeBookRotationOverrides(STARTUP_SETTINGS.bookRotationOverrides, Number(STARTUP_SETTINGS.bookCount)),
   bookArt: {
     faceBitmap: null,
     backBitmap: null,
@@ -438,6 +439,9 @@ const ART_ATLAS = {
 };
 
 function syncOutputs() {
+  if (!hasControlPanel) {
+    return;
+  }
   controls.spacing.min = "0";
   controls.speedValue.value = Number(state.speed).toFixed(2);
   controls.dragValue.value = Number(state.dragSensitivity).toFixed(2);
@@ -1366,6 +1370,9 @@ function drawMesh(mesh, matrix, texture = artTexture, useTexture = false) {
 }
 
 function updateArtStatus() {
+  if (!controls.artStatus) {
+    return;
+  }
   const parts = [];
   if (state.cmsBooks.length > 0) {
     parts.push("Webflow CMS art");
@@ -1742,7 +1749,9 @@ function render(now) {
     const fittedCount = getAutoFitBookCount();
     if (fittedCount !== state.bookCount) {
       state.bookCount = fittedCount;
-      controls.bookCount.value = String(fittedCount);
+      if (controls.bookCount) {
+        controls.bookCount.value = String(fittedCount);
+      }
       buildBooks();
     }
   }
@@ -1838,6 +1847,9 @@ cmsObserver.observe(document.body, {
 setInterval(checkForCmsUpdates, 1000);
 
 function updateImportStatus() {
+  if (!controls.importStatus) {
+    return;
+  }
   if (state.importedMesh && state.useImported) {
     controls.importStatus.textContent = `Using imported model: ${state.importedFileName}`;
     return;
@@ -1948,6 +1960,9 @@ function closeWebflowHelp() {
 }
 
 function updateFromInputs(event) {
+  if (!hasControlPanel) {
+    return;
+  }
   state.autoMove = controls.autoMove.checked;
   state.patternRotate = controls.patternRotate.checked;
   state.staticLean = controls.staticLean.checked;
@@ -2062,7 +2077,7 @@ function updateFromInputs(event) {
   controls.coverColor,
   controls.pageColor,
   controls.accentColor,
-].forEach((control) => control.addEventListener("input", updateFromInputs));
+].forEach((control) => control?.addEventListener("input", updateFromInputs));
 
 // Audio system for book interactions
 let audioContext = null;
@@ -2275,12 +2290,12 @@ window.addEventListener("wheel", (event) => {
   state.velocity += event.deltaY * 0.00004 * state.dragSensitivity;
 }, { passive: false });
 
-controls.resetView.addEventListener("click", () => {
+controls.resetView?.addEventListener("click", () => {
   state.offset = 0;
   state.velocity = 0;
 });
 
-controls.resetBookLeans.addEventListener("click", () => {
+controls.resetBookLeans?.addEventListener("click", () => {
   state.bookRotationOverrides = Array.from({ length: state.bookCount }, () => ({ x: 0, y: 0, z: 0 }));
   renderBookLeanControls();
 });
@@ -2295,7 +2310,7 @@ window.addEventListener("keydown", (event) => {
   }
 });
 
-controls.exportSettings.addEventListener("click", () => {
+controls.exportSettings?.addEventListener("click", () => {
   const payload = buildWebflowExportPayload();
   const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
   const link = document.createElement("a");
@@ -2305,14 +2320,14 @@ controls.exportSettings.addEventListener("click", () => {
   URL.revokeObjectURL(link.href);
 });
 
-controls.exportImage.addEventListener("click", () => {
+controls.exportImage?.addEventListener("click", () => {
   const link = document.createElement("a");
   link.href = canvas.toDataURL("image/png");
   link.download = "bookshelf-scene.png";
   link.click();
 });
 
-controls.glbFile.addEventListener("change", async (event) => {
+controls.glbFile?.addEventListener("change", async (event) => {
   const [file] = event.target.files || [];
   if (!file) {
     return;
@@ -2326,9 +2341,13 @@ controls.glbFile.addEventListener("change", async (event) => {
   } catch (error) {
     state.importedMesh = null;
     state.importedFileName = "";
-    controls.useImported.checked = false;
+    if (controls.useImported) {
+      controls.useImported.checked = false;
+    }
     state.useImported = false;
-    controls.importStatus.textContent = error instanceof Error ? error.message : "Failed to import GLB file.";
+    if (controls.importStatus) {
+      controls.importStatus.textContent = error instanceof Error ? error.message : "Failed to import GLB file.";
+    }
   }
 });
 
@@ -2336,19 +2355,19 @@ async function loadBitmapFromFile(file) {
   return createImageBitmap(file);
 }
 
-controls.faceImage.addEventListener("change", async (event) => {
+controls.faceImage?.addEventListener("change", async (event) => {
   const [file] = event.target.files || [];
   state.bookArt.faceBitmap = file ? await loadBitmapFromFile(file) : null;
   rebuildArtTexture();
 });
 
-controls.backImage.addEventListener("change", async (event) => {
+controls.backImage?.addEventListener("change", async (event) => {
   const [file] = event.target.files || [];
   state.bookArt.backBitmap = file ? await loadBitmapFromFile(file) : null;
   rebuildArtTexture();
 });
 
-controls.spineImage.addEventListener("change", async (event) => {
+controls.spineImage?.addEventListener("change", async (event) => {
   const [file] = event.target.files || [];
   state.bookArt.spineBitmap = file ? await loadBitmapFromFile(file) : null;
   rebuildArtTexture();
