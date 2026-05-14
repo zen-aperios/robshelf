@@ -92,8 +92,8 @@ const STARTUP_SETTINGS = {
   shelfRotationZ: 0,
   bookDepthOffset: 0,
   depthAlign: 0,
-  bookCount: 36,
-  bookRotationOverrides: Array.from({ length: 36 }, () => ({ x: 0, y: 0, z: 0 })),
+  bookCount: 25,
+  bookRotationOverrides: Array.from({ length: 25 }, () => ({ x: 0, y: 0, z: 0 })),
   colors: {
     cover: "#c7612f",
     pages: "#f4ecdb",
@@ -429,6 +429,7 @@ const state = {
   soundsEnabled: true,
   hoverSoundVolume: 0.3,
   clickSoundVolume: 0.5,
+  renderTimeSeconds: 0,
 };
 
 const ART_ATLAS = {
@@ -759,7 +760,7 @@ function getHoverDominoPitch(index) {
   }
 
   const distance = Math.abs(index - state.hoveredIndex);
-  const maxReach = Math.min(3, Math.max(2, books.length - 1));
+  const maxReach = Math.min(10, Math.max(2, books.length - 1));
   if (distance === 0 || distance > maxReach) {
     return 0;
   }
@@ -1232,9 +1233,20 @@ function buildBooks() {
   state.artBuildSerial = buildSerial;
   const tiltedCount = clamp(Math.round(state.bookCount * 0.18), 3, 10);
   const tiltedIndices = new Set();
+  const maxTilts = Math.min(tiltedCount, Math.ceil(state.bookCount / 2));
+  const candidateOrder = Array.from({ length: state.bookCount }, (_, index) => index)
+    .sort(() => Math.random() - 0.5);
 
-  while (tiltedIndices.size < Math.min(tiltedCount, state.bookCount)) {
-    tiltedIndices.add(Math.floor(Math.random() * state.bookCount));
+  for (const index of candidateOrder) {
+    if (tiltedIndices.size >= maxTilts) {
+      break;
+    }
+    const left = (index - 1 + state.bookCount) % state.bookCount;
+    const right = (index + 1) % state.bookCount;
+    if (tiltedIndices.has(left) || tiltedIndices.has(right)) {
+      continue;
+    }
+    tiltedIndices.add(index);
   }
 
   books = Array.from({ length: state.bookCount }, (_, index) => {
@@ -1577,7 +1589,12 @@ function getResolvedBookPositions(timeSeconds) {
 
   let previousIndex = focusIndex;
   for (const current of rightItems) {
-    const extraGap = previousIndex === focusIndex ? hoverClearance : 0;
+    const hoverDistance = Math.abs(current.index - focusIndex);
+    const nearHoverBoost = state.hoveredIndex >= 0
+      ? Math.max(0, 1 - ((hoverDistance - 1) / 6))
+      : 0;
+    const hoverZoneGap = nearHoverBoost * 0.06;
+    const extraGap = (previousIndex === focusIndex ? hoverClearance : 0) + hoverZoneGap;
     const minimum = resolved[previousIndex] + items[previousIndex].halfSpan + current.halfSpan + collisionGap + extraGap;
     const targetX = focusBaseX + current.relativeX;
     resolved[current.index] = Math.max(targetX, minimum);
@@ -1586,7 +1603,12 @@ function getResolvedBookPositions(timeSeconds) {
 
   let nextIndex = focusIndex;
   for (const current of leftItems) {
-    const extraGap = nextIndex === focusIndex ? hoverClearance : 0;
+    const hoverDistance = Math.abs(current.index - focusIndex);
+    const nearHoverBoost = state.hoveredIndex >= 0
+      ? Math.max(0, 1 - ((hoverDistance - 1) / 6))
+      : 0;
+    const hoverZoneGap = nearHoverBoost * 0.06;
+    const extraGap = (nextIndex === focusIndex ? hoverClearance : 0) + hoverZoneGap;
     const maximum = resolved[nextIndex] - items[nextIndex].halfSpan - current.halfSpan - collisionGap - extraGap;
     const targetX = focusBaseX + current.relativeX;
     resolved[current.index] = Math.min(targetX, maximum);
@@ -1689,7 +1711,7 @@ function getRotationPatternValue(index, timeSeconds, book) {
   return Math.sin(index * 0.55 + timeSeconds * 1.2 + state.offset * 0.18 + book.seed);
 }
 
-function createMatrixForBook(book, index, x, timeSeconds, projection) {
+function createMatrixForBook(book, index, x, timeSeconds, projection, resolvedPositions, cycle) {
   const rotationOverride = getBookRotationOverride(index);
   const hoverMix = book.hoverMix;
   const z = state.depthSwing > 0
@@ -1702,15 +1724,42 @@ function createMatrixForBook(book, index, x, timeSeconds, projection) {
   const baselineY = book.height / 2 - 1.28 + state.shelfVerticalOffset;
   const y = baselineY + bob + hoverMix * 0.02;
   const combinedLean = getBookLean(index, book, timeSeconds);
-  const finalLean = rotationOverride.z + (state.hoverResetRotation ? combinedLean * (1 - hoverMix) : combinedLean);
+  const desiredLean = rotationOverride.z + (state.hoverResetRotation ? combinedLean * (1 - hoverMix) : combinedLean);
   const faceTurn = getBookFaceTurn(hoverMix) - rotationOverride.y;
   const hoverLift = hoverMix * 0.9;
-  const leanShift = clamp(
-    Math.tan(finalLean) * book.height * 0.42,
+  const rawLeanShift = clamp(
+    Math.tan(desiredLean) * book.height * 0.42,
     -book.height * 0.78,
     book.height * 0.78,
   ) * (1 - hoverMix);
   const xTilt = getBookXTilt(index, book, timeSeconds, hoverMix, true);
+  const leftIndex = (index - 1 + books.length) % books.length;
+  const rightIndex = (index + 1) % books.length;
+  const selfHalf = getBookHalfSpan(book, hoverMix, 0, xTilt, faceTurn);
+  const leftBook = books[leftIndex];
+  const rightBook = books[rightIndex];
+  const leftFaceTurn = getBookFaceTurn(leftBook.hoverMix) - getBookRotationOverride(leftIndex).y;
+  const rightFaceTurn = getBookFaceTurn(rightBook.hoverMix) - getBookRotationOverride(rightIndex).y;
+  const leftHalf = getBookHalfSpan(
+    leftBook,
+    leftBook.hoverMix,
+    0,
+    getBookXTilt(leftIndex, leftBook, timeSeconds, leftBook.hoverMix, true),
+    leftFaceTurn,
+  );
+  const rightHalf = getBookHalfSpan(
+    rightBook,
+    rightBook.hoverMix,
+    0,
+    getBookXTilt(rightIndex, rightBook, timeSeconds, rightBook.hoverMix, true),
+    rightFaceTurn,
+  );
+  const leftDistance = wrapCentered(resolvedPositions[index] - resolvedPositions[leftIndex], cycle);
+  const rightDistance = wrapCentered(resolvedPositions[rightIndex] - resolvedPositions[index], cycle);
+  const leftGap = Math.max(0, Math.abs(leftDistance) - (leftHalf + selfHalf) - 0.006);
+  const rightGap = Math.max(0, Math.abs(rightDistance) - (selfHalf + rightHalf) - 0.006);
+  const leanShift = clamp(rawLeanShift, -leftGap, rightGap);
+  const finalLean = Math.atan2(leanShift, Math.max(book.height * 0.42, 0.0001));
   const theta = Math.PI / 2 - faceTurn;
   const bookFrontExtent = (Math.abs(Math.sin(theta)) * (book.width / 2))
     + (Math.abs(Math.cos(theta)) * (book.depth / 2));
@@ -1744,6 +1793,7 @@ function render(now) {
 
   resize();
   const timeSeconds = now * 0.001;
+  state.renderTimeSeconds = timeSeconds;
 
   if (state.autoFitCount) {
     const fittedCount = getAutoFitBookCount();
@@ -1799,7 +1849,15 @@ function render(now) {
     book.positionX = moveTowardsWrapped(book.positionX, targetX, cycle, easing);
     const drawX = wrapCentered(book.positionX, cycle);
     book.drawX = drawX; // Store drawX for pitch calculation
-    const matrix = createMatrixForBook(book, index, drawX, timeSeconds, projectionWithRotation);
+    const matrix = createMatrixForBook(
+      book,
+      index,
+      drawX,
+      timeSeconds,
+      projectionWithRotation,
+      resolvedPositions,
+      cycle,
+    );
     drawMesh(
       useImported ? state.importedMesh : book.mesh,
       matrix,
@@ -2392,26 +2450,31 @@ function updateHoveredBook(clientX, clientY) {
   const aspect = gl.canvas.width / Math.max(gl.canvas.height, 1);
   const tanHalfFov = Math.tan(Math.PI / 8);
   let bestIndex = -1;
-  let bestDistance = Infinity;
+  let bestScore = Infinity;
+  let bestDepth = -Infinity;
+  const sampleTime = state.renderTimeSeconds || 0;
 
   books.forEach((book, index) => {
-    const worldX = getBookX(index);
+    const worldX = Number.isFinite(book.drawX) ? book.drawX : getBookX(index);
     const hoverMix = book.hoverMix;
     const worldZ = -7 + hoverMix * 0.9;
     const worldY = (book.height / 2 - 1.28) + hoverMix * 0.02;
     const projectedX = worldX / (-worldZ * tanHalfFov * aspect);
     const projectedY = worldY / (-worldZ * tanHalfFov);
+    const combinedLean = getBookLean(index, book, sampleTime);
+    const zLean = getBookRotationOverride(index).z + (state.hoverResetRotation ? combinedLean * (1 - hoverMix) : combinedLean);
+    const xTilt = getBookXTilt(index, book, sampleTime, hoverMix, true);
     const halfWidth = getBookHalfSpan(
       book,
       hoverMix,
-      0,
-      getBookXTilt(index, book, 0, hoverMix, true),
+      zLean,
+      xTilt,
       getBookFaceTurn(hoverMix) - getBookRotationOverride(index).y,
     ) / (-worldZ * tanHalfFov * aspect);
-    const halfHeight = ((book.height / 2) + (Math.abs(Math.sin(getBookXTilt(index, book, 0, hoverMix, true))) * book.depth))
+    const halfHeight = ((book.height / 2) + (Math.abs(Math.sin(xTilt)) * book.depth))
       / (-worldZ * tanHalfFov);
-    const hitPaddingX = 0.02;
-    const hitPaddingY = 0.03;
+    const hitPaddingX = 0.03;
+    const hitPaddingY = 0.04;
     const insideX = Math.abs(normalizedX - projectedX) <= halfWidth + hitPaddingX;
     const insideY = Math.abs(normalizedY - projectedY) <= halfHeight + hitPaddingY;
     if (!insideX || !insideY) {
@@ -2422,8 +2485,11 @@ function updateHoveredBook(clientX, clientY) {
       (normalizedX - projectedX) / Math.max(halfWidth, 0.001),
       (normalizedY - projectedY) / Math.max(halfHeight, 0.001),
     );
-    if (distance < bestDistance) {
-      bestDistance = distance;
+    const depthBias = -worldZ;
+    const score = distance - (hoverMix * 0.08);
+    if (score < bestScore || (Math.abs(score - bestScore) < 0.05 && depthBias > bestDepth)) {
+      bestScore = score;
+      bestDepth = depthBias;
       bestIndex = index;
     }
   });
