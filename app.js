@@ -1199,7 +1199,7 @@ function getBookDimensions(index, count) {
     };
   }
 
-  const height = randomRange(2.2, 2.85);
+  const height = randomRange(2.2, 2.85) * 0.9;
   const tallness = (height - 2.2) / (2.85 - 2.2);
   // Prevent very tall books from becoming unrealistically thin.
   const minWidthForHeight = 0.56 + (tallness * 0.14);
@@ -1586,14 +1586,16 @@ function getResolvedBookPositions(timeSeconds) {
   const leftItems = items
     .filter((item) => item.index !== focusIndex && item.relativeX < 0)
     .sort((left, right) => right.relativeX - left.relativeX);
+  const hoverPushReach = 12;
+  const hoverPushFloor = 0.28;
 
   let previousIndex = focusIndex;
   for (const current of rightItems) {
     const hoverDistance = Math.abs(current.index - focusIndex);
     const nearHoverBoost = state.hoveredIndex >= 0
-      ? Math.max(0, 1 - ((hoverDistance - 1) / 6))
+      ? Math.max(0, Math.max(hoverPushFloor, 1 - ((hoverDistance - 1) / hoverPushReach)))
       : 0;
-    const hoverZoneGap = nearHoverBoost * 0.06;
+    const hoverZoneGap = nearHoverBoost * 0.14;
     const extraGap = (previousIndex === focusIndex ? hoverClearance : 0) + hoverZoneGap;
     const minimum = resolved[previousIndex] + items[previousIndex].halfSpan + current.halfSpan + collisionGap + extraGap;
     const targetX = focusBaseX + current.relativeX;
@@ -1605,9 +1607,9 @@ function getResolvedBookPositions(timeSeconds) {
   for (const current of leftItems) {
     const hoverDistance = Math.abs(current.index - focusIndex);
     const nearHoverBoost = state.hoveredIndex >= 0
-      ? Math.max(0, 1 - ((hoverDistance - 1) / 6))
+      ? Math.max(0, Math.max(hoverPushFloor, 1 - ((hoverDistance - 1) / hoverPushReach)))
       : 0;
-    const hoverZoneGap = nearHoverBoost * 0.06;
+    const hoverZoneGap = nearHoverBoost * 0.14;
     const extraGap = (nextIndex === focusIndex ? hoverClearance : 0) + hoverZoneGap;
     const maximum = resolved[nextIndex] - items[nextIndex].halfSpan - current.halfSpan - collisionGap - extraGap;
     const targetX = focusBaseX + current.relativeX;
