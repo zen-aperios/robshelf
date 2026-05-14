@@ -1207,7 +1207,7 @@ function getBookDimensions(index, count) {
   return {
     width: randomRange(minWidthForHeight, maxWidthForHeight),
     height,
-    depth: randomRange(0.2, 0.4),
+    depth: randomRange(0.27, 0.4),
   };
 }
 
@@ -1620,6 +1620,65 @@ function getResolvedBookPositions(timeSeconds) {
   return resolved;
 }
 
+function getBookDynamicHalfSpan(book, index, timeSeconds) {
+  const hoverMix = book.hoverMix;
+  const combinedLean = getBookLean(index, book, timeSeconds);
+  const leanAngle = getBookRotationOverride(index).z + (state.hoverResetRotation ? combinedLean * (1 - hoverMix) : combinedLean);
+  const pitchAngle = getBookXTilt(index, book, timeSeconds, hoverMix, true);
+  const faceTurn = getBookFaceTurn(hoverMix) - getBookRotationOverride(index).y;
+  return getBookHalfSpan(book, hoverMix, leanAngle, pitchAngle, faceTurn);
+}
+
+function resolveLiveNeighborPositions(basePositions, timeSeconds, cycle) {
+  if (books.length < 2) {
+    return basePositions;
+  }
+
+  const focusIndex = state.hoveredIndex >= 0
+    ? state.hoveredIndex
+    : Math.floor((books.length - 1) / 2);
+  const focusBaseX = basePositions[focusIndex];
+  const resolved = basePositions.slice();
+  const collisionGap = 0.04;
+  const iterations = 3;
+
+  for (let pass = 0; pass < iterations; pass += 1) {
+    const halfSpans = books.map((book, index) => getBookDynamicHalfSpan(book, index, timeSeconds));
+    const items = books.map((book, index) => ({
+      index,
+      relativeX: wrapCentered(resolved[index] - focusBaseX, cycle),
+      halfSpan: halfSpans[index],
+    }));
+
+    const rightItems = items
+      .filter((item) => item.index !== focusIndex && item.relativeX >= 0)
+      .sort((left, right) => left.relativeX - right.relativeX);
+    const leftItems = items
+      .filter((item) => item.index !== focusIndex && item.relativeX < 0)
+      .sort((left, right) => right.relativeX - left.relativeX);
+
+    resolved[focusIndex] = focusBaseX;
+
+    let previousIndex = focusIndex;
+    for (const current of rightItems) {
+      const minimum = resolved[previousIndex] + items[previousIndex].halfSpan + current.halfSpan + collisionGap;
+      const targetX = focusBaseX + current.relativeX;
+      resolved[current.index] = Math.max(targetX, minimum);
+      previousIndex = current.index;
+    }
+
+    let nextIndex = focusIndex;
+    for (const current of leftItems) {
+      const maximum = resolved[nextIndex] - items[nextIndex].halfSpan - current.halfSpan - collisionGap;
+      const targetX = focusBaseX + current.relativeX;
+      resolved[current.index] = Math.min(targetX, maximum);
+      nextIndex = current.index;
+    }
+  }
+
+  return resolved;
+}
+
 function moveTowardsWrapped(current, target, cycle, easing) {
   const delta = wrapCentered(target - current, cycle);
   return wrapCentered(current + delta * easing, cycle);
@@ -1844,12 +1903,20 @@ function render(now) {
   const useImported = state.useImported && state.importedMesh;
   const resolvedPositions = getResolvedBookPositions(timeSeconds);
   const { cycle } = getWrapConfig();
+  const provisionalDrawPositions = new Array(books.length);
 
   books.forEach((book, index) => {
     const targetX = resolvedPositions[index];
     const easing = book.hoverMix > 0.001 ? state.hoverSpeed * 0.55 : state.returnSpeed * 0.55;
     book.positionX = moveTowardsWrapped(book.positionX, targetX, cycle, easing);
     const drawX = wrapCentered(book.positionX, cycle);
+    provisionalDrawPositions[index] = drawX;
+  });
+
+  const drawResolvedPositions = resolveLiveNeighborPositions(provisionalDrawPositions, timeSeconds, cycle);
+
+  books.forEach((book, index) => {
+    const drawX = wrapCentered(drawResolvedPositions[index], cycle);
     book.drawX = drawX; // Store drawX for pitch calculation
     const matrix = createMatrixForBook(
       book,
@@ -1857,7 +1924,7 @@ function render(now) {
       drawX,
       timeSeconds,
       projectionWithRotation,
-      resolvedPositions,
+      drawResolvedPositions,
       cycle,
     );
     drawMesh(
