@@ -2883,12 +2883,10 @@ function getBookLinkElement(bookIndex) {
 
 function navigateToBookLink(bookIndex, event) {
   const linkUrl = getBookLinkUrl(bookIndex);
-  const linkElement = getBookLinkElement(bookIndex);
   const hasCustomHandler = typeof window.onBookClick === "function";
   console.log("Bookshelf click", {
     bookIndex,
     linkUrl,
-    linkElement,
     hasCustomHandler,
     book: books?.[bookIndex],
   });
@@ -2916,14 +2914,22 @@ function navigateToBookLink(bookIndex, event) {
     return;
   }
 
-  if (linkElement && typeof linkElement.click === "function") {
-    console.log("Bookshelf triggering native anchor click", linkElement.href || linkUrl);
-    linkElement.click();
-    return;
-  }
+  const absoluteUrl = (() => {
+    try {
+      return new URL(linkUrl, window.location.href).href;
+    } catch (error) {
+      console.warn("Bookshelf failed to build absolute URL", { linkUrl, error });
+      return linkUrl;
+    }
+  })();
 
-  console.log("Bookshelf navigating to", linkUrl);
-  window.location.assign(linkUrl);
+  console.log("Bookshelf navigating to", absoluteUrl);
+  window.location.href = absoluteUrl;
+  window.setTimeout(() => {
+    if (window.location.href !== absoluteUrl) {
+      window.location.assign(absoluteUrl);
+    }
+  }, 0);
 }
 
 function updateCanvasCursor() {
