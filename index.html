@@ -87,6 +87,24 @@
         </select>
       </label>
       <label class="range">
+        <span>Load animation</span>
+        <select id="loadAnimation">
+          <option value="dropFade">Center hard drop</option>
+          <option value="slideRight">Slide from right</option>
+          <option value="slideLeft">Slide from left</option>
+          <option value="dropHardStop">Hard-stop drop</option>
+          <option value="none">None</option>
+        </select>
+      </label>
+      <label class="range">
+        <span>Scene tone</span>
+        <select id="sceneTone">
+          <option value="normal">Normal</option>
+          <option value="lighter">Slightly lighter</option>
+          <option value="darker">Slightly darker</option>
+        </select>
+      </label>
+      <label class="range">
         <span>Speed <output id="speedValue">0.35</output></span>
         <input id="speed" type="range" min="0" max="2" step="0.01" value="0.35">
       </label>

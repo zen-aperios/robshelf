@@ -72,6 +72,8 @@ const STARTUP_SETTINGS = {
   useImported: false,
   autoFitCount: false,
   sizePattern: "random",
+  loadAnimation: "dropFade",
+  sceneTone: "normal",
   widthScale: 2.6,
   heightScale: 1.05,
   depthScale: 1,
@@ -128,6 +130,8 @@ function applyStartupControls(settings) {
     ["autoFitCount", "checked", settings.autoFitCount],
     ["rotationPattern", "value", settings.rotationPattern],
     ["sizePattern", "value", settings.sizePattern],
+    ["loadAnimation", "value", settings.loadAnimation],
+    ["sceneTone", "value", settings.sceneTone],
     ["speed", "value", settings.speed],
     ["dragSensitivity", "value", settings.dragSensitivity],
     ["spacing", "value", settings.spacing],
@@ -300,6 +304,8 @@ const controls = {
   useImported: document.getElementById("useImported"),
   autoFitCount: document.getElementById("autoFitCount"),
   sizePattern: document.getElementById("sizePattern"),
+  loadAnimation: document.getElementById("loadAnimation"),
+  sceneTone: document.getElementById("sceneTone"),
   speed: document.getElementById("speed"),
   speedValue: document.getElementById("speedValue"),
   dragSensitivity: document.getElementById("dragSensitivity"),
@@ -381,6 +387,8 @@ const state = {
   useImported: Boolean(STARTUP_SETTINGS.useImported),
   autoFitCount: Boolean(STARTUP_SETTINGS.autoFitCount),
   sizePattern: STARTUP_SETTINGS.sizePattern,
+  loadAnimation: STARTUP_SETTINGS.loadAnimation || "dropFade",
+  sceneTone: STARTUP_SETTINGS.sceneTone || "normal",
   widthScale: Number(STARTUP_SETTINGS.widthScale),
   heightScale: Number(STARTUP_SETTINGS.heightScale),
   depthScale: Number(STARTUP_SETTINGS.depthScale),
@@ -430,6 +438,8 @@ const state = {
   hoverSoundVolume: 0.3,
   clickSoundVolume: 0.5,
   renderTimeSeconds: 0,
+  loadAnimationStartTime: 0,
+  loadAnimationArmed: true,
 };
 
 const ART_ATLAS = {
@@ -490,11 +500,14 @@ varying vec3 vColor;
 varying vec2 vTexCoord;
 uniform sampler2D uTexture;
 uniform float uUseTexture;
+uniform float uTone;
+uniform float uAlpha;
 void main() {
   vec4 texel = texture2D(uTexture, vTexCoord);
   float textureMix = uUseTexture * texel.a;
   vec3 color = mix(vColor, vColor * texel.rgb, textureMix);
-  gl_FragColor = vec4(color, 1.0);
+  color = clamp(color + vec3(uTone), 0.0, 1.0);
+  gl_FragColor = vec4(color, uAlpha);
 }
 `;
 
@@ -1231,6 +1244,7 @@ function buildBooks() {
   const useCmsArt = shuffledCmsLibrary.length > 0;
   const buildSerial = state.artBuildSerial + 1;
   state.artBuildSerial = buildSerial;
+  state.loadAnimationArmed = !useCmsArt;
   const tiltedCount = clamp(Math.round(state.bookCount * 0.18), 3, 10);
   const tiltedIndices = new Set();
   const maxTilts = Math.min(tiltedCount, Math.ceil(state.bookCount / 2));
@@ -1298,12 +1312,19 @@ function buildBooks() {
   });
 
   if (useCmsArt) {
-    books.forEach((book) => {
+    const artLoads = books.map((book) => (
       buildBookArtTexture(book, book.artSource, buildSerial).catch((error) => {
         if (state.artBuildSerial === buildSerial) {
           console.warn("Failed to load CMS book art.", error);
         }
-      });
+      })
+    ));
+    Promise.allSettled(artLoads).then(() => {
+      if (state.artBuildSerial !== buildSerial) {
+        return;
+      }
+      state.loadAnimationStartTime = performance.now() * 0.001;
+      state.loadAnimationArmed = true;
     });
   }
 
@@ -1311,6 +1332,10 @@ function buildBooks() {
   books.forEach((book, index) => {
     book.positionX = initialPositions[index];
   });
+  if (!useCmsArt) {
+    state.loadAnimationStartTime = performance.now() * 0.001;
+    state.loadAnimationArmed = true;
+  }
   state.minSpacing = Math.max(...books.map((book) => book.depth));
   state.needsBookRefresh = false;
   updateArtStatus();
@@ -1329,9 +1354,13 @@ const aTexCoord = gl.getAttribLocation(program, "aTexCoord");
 const uMatrix = gl.getUniformLocation(program, "uMatrix");
 const uTexture = gl.getUniformLocation(program, "uTexture");
 const uUseTexture = gl.getUniformLocation(program, "uUseTexture");
+const uTone = gl.getUniformLocation(program, "uTone");
+const uAlpha = gl.getUniformLocation(program, "uAlpha");
 
 gl.enable(gl.DEPTH_TEST);
 gl.disable(gl.CULL_FACE);
+gl.enable(gl.BLEND);
+gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
 
 const artTexture = createEmptyTexture();
 
@@ -1371,13 +1400,20 @@ function bindMesh(mesh) {
   gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, mesh.indices, gl.STATIC_DRAW);
 }
 
-function drawMesh(mesh, matrix, texture = artTexture, useTexture = false) {
+function drawMesh(mesh, matrix, texture = artTexture, useTexture = false, alpha = 1) {
   bindMesh(mesh);
   gl.uniformMatrix4fv(uMatrix, false, new Float32Array(matrix));
   gl.activeTexture(gl.TEXTURE0);
   gl.bindTexture(gl.TEXTURE_2D, texture);
   gl.uniform1i(uTexture, 0);
   gl.uniform1f(uUseTexture, useTexture ? 1 : 0);
+  const tone = state.sceneTone === "lighter"
+    ? 0.07
+    : state.sceneTone === "darker"
+      ? -0.07
+      : 0;
+  gl.uniform1f(uTone, tone);
+  gl.uniform1f(uAlpha, clamp(alpha, 0, 1));
   gl.drawElements(gl.TRIANGLES, mesh.indices.length, gl.UNSIGNED_SHORT, 0);
 }
 
@@ -1684,6 +1720,77 @@ function moveTowardsWrapped(current, target, cycle, easing) {
   return wrapCentered(current + delta * easing, cycle);
 }
 
+function clamp01(value) {
+  return clamp(value, 0, 1);
+}
+
+function easeOutCubic(t) {
+  const p = 1 - clamp01(t);
+  return 1 - (p * p * p);
+}
+
+function easeOutQuint(t) {
+  const p = 1 - clamp01(t);
+  return 1 - (p ** 5);
+}
+
+function easeOutExpo(t) {
+  const p = clamp01(t);
+  if (p >= 1) {
+    return 1;
+  }
+  return 1 - (2 ** (-10 * p));
+}
+
+function easeOutBack(t) {
+  const p = clamp01(t);
+  const c1 = 1.70158;
+  const c3 = c1 + 1;
+  return 1 + (c3 * ((p - 1) ** 3)) + (c1 * ((p - 1) ** 2));
+}
+
+function getLoadAnimationTransform(index, timeSeconds, drawX = 0) {
+  if (state.loadAnimation === "none") {
+    return { x: 0, y: 0, alpha: 1 };
+  }
+
+  if (!state.loadAnimationArmed) {
+    return { x: 0, y: 1.55, alpha: 0 };
+  }
+
+  // Stagger from the visual center line of the screen, not from array order.
+  const centerDistance = Math.abs(drawX);
+  const stagger = state.loadAnimation === "slideRight" || state.loadAnimation === "slideLeft" ? 0.04 : 0.055;
+  const duration = state.loadAnimation === "dropHardStop" ? 0.48 : 0.54;
+  const elapsed = Math.max(0, timeSeconds - state.loadAnimationStartTime);
+  const local = clamp01((elapsed - (centerDistance * stagger)) / duration);
+  const eased = easeOutCubic(local);
+
+  if (state.loadAnimation === "dropFade") {
+    const hardLand = easeOutExpo(local);
+    return {
+      x: 0,
+      y: (1 - hardLand) * 1.55,
+      alpha: 1,
+    };
+  }
+
+  if (state.loadAnimation === "slideRight") {
+    return { x: (1 - eased) * 7.0, y: 0, alpha: 1 };
+  }
+
+  if (state.loadAnimation === "slideLeft") {
+    return { x: -(1 - eased) * 7.0, y: 0, alpha: 1 };
+  }
+
+  if (state.loadAnimation === "dropHardStop") {
+    const hardStop = easeOutBack(local);
+    return { x: 0, y: (1 - hardStop) * 4.8, alpha: 1 };
+  }
+
+  return { x: 0, y: 0, alpha: 1 };
+}
+
 function transformPoint(matrix, point) {
   const x = point[0];
   const y = point[1];
@@ -1805,7 +1912,7 @@ function getRotationPatternValue(index, timeSeconds, book) {
   return Math.sin(index * 0.55 + timeSeconds * 1.2 + state.offset * 0.18 + book.seed);
 }
 
-function createMatrixForBook(book, index, x, timeSeconds, projection, resolvedPositions, cycle) {
+function createMatrixForBook(book, index, x, timeSeconds, projection, resolvedPositions, cycle, loadYOffset = 0) {
   const rotationOverride = getBookRotationOverride(index);
   const hoverMix = book.hoverMix;
   const z = state.depthSwing > 0
@@ -1816,7 +1923,7 @@ function createMatrixForBook(book, index, x, timeSeconds, projection, resolvedPo
     ? Math.sin(index * 0.8 + timeSeconds * 1.05 + book.seed) * 0.03
     : 0;
   const baselineY = book.height / 2 - 1.28 + state.shelfVerticalOffset;
-  const y = baselineY + bob + hoverMix * 0.02;
+  const y = baselineY + bob + hoverMix * 0.02 + loadYOffset;
   const desiredLean = getEffectiveZLean(index, book, timeSeconds, hoverMix);
   const faceTurn = getBookFaceTurn(hoverMix) - rotationOverride.y;
   const hoverLift = hoverMix * 0.9;
@@ -1957,20 +2064,23 @@ function render(now) {
   books.forEach((book, index) => {
     const drawX = wrapCentered(drawResolvedPositions[index], cycle);
     book.drawX = drawX; // Store drawX for pitch calculation
+    const loadAnim = getLoadAnimationTransform(index, timeSeconds, drawX);
     const matrix = createMatrixForBook(
       book,
       index,
-      drawX,
+      drawX + loadAnim.x,
       timeSeconds,
       projectionWithRotation,
       drawResolvedPositions,
       cycle,
+      loadAnim.y,
     );
     drawMesh(
       useImported ? state.importedMesh : book.mesh,
       matrix,
       useImported ? artTexture : book.artTexture,
       !useImported && !!book.hasArt,
+      loadAnim.alpha,
     );
   });
 
@@ -1999,8 +2109,9 @@ function applyCmsBooksToExistingShelf(cmsBooks) {
   state.cmsBookCursor = 0;
   const buildSerial = state.artBuildSerial + 1;
   state.artBuildSerial = buildSerial;
+  state.loadAnimationArmed = false;
 
-  books.forEach((book, index) => {
+  const artLoads = books.map((book, index) => {
     const cmsArt = shuffledCmsLibrary[index % shuffledCmsLibrary.length];
     const hasCmsFace = Boolean(cmsArt?.coverUrl);
     const hasCmsBack = Boolean(cmsArt?.backUrl);
@@ -2019,11 +2130,19 @@ function applyCmsBooksToExistingShelf(cmsBooks) {
       spineBitmap: hasCmsSpine,
     });
 
-    buildBookArtTexture(book, cmsArt, buildSerial).catch((error) => {
+    return buildBookArtTexture(book, cmsArt, buildSerial).catch((error) => {
       if (state.artBuildSerial === buildSerial) {
         console.warn("Failed to load CMS book art.", error);
       }
     });
+  });
+
+  Promise.allSettled(artLoads).then(() => {
+    if (state.artBuildSerial !== buildSerial) {
+      return;
+    }
+    state.loadAnimationStartTime = performance.now() * 0.001;
+    state.loadAnimationArmed = true;
   });
 
   updateArtStatus();
@@ -2193,6 +2312,8 @@ function updateFromInputs(event) {
   state.useImported = controls.useImported.checked;
   state.autoFitCount = controls.autoFitCount.checked;
   const nextSizePattern = controls.sizePattern.value;
+  const nextLoadAnimation = controls.loadAnimation.value;
+  state.sceneTone = controls.sceneTone.value;
   const nextWidthScale = Number(controls.widthScale.value);
   const nextHeightScale = Number(controls.heightScale.value);
   const nextDepthScale = Number(controls.depthScale.value);
@@ -2253,6 +2374,13 @@ function updateFromInputs(event) {
     state.matteAmount = nextMatteAmount;
   }
 
+  if (nextLoadAnimation !== state.loadAnimation) {
+    state.loadAnimation = nextLoadAnimation;
+    state.loadAnimationStartTime = state.renderTimeSeconds;
+  } else {
+    state.loadAnimation = nextLoadAnimation;
+  }
+
   if (state.importedMesh && !state.useImported) {
     updateImportStatus();
   } else if (state.importedMesh && state.useImported) {
@@ -2273,6 +2401,8 @@ function updateFromInputs(event) {
   controls.useImported,
   controls.autoFitCount,
   controls.sizePattern,
+  controls.loadAnimation,
+  controls.sceneTone,
   controls.widthScale,
   controls.heightScale,
   controls.depthScale,
