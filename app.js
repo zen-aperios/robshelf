@@ -95,12 +95,12 @@ const STARTUP_SETTINGS = {
   hoverDomino: false,
   useImported: false,
   autoFitCount: false,
-  sizePattern: "random",
+  sizePattern: "uniform",
   loadAnimation: "dropFade",
   sceneTone: "darker",
   widthScale: 2.6,
-  heightScale: 1.05,
-  depthScale: 1,
+  heightScale: 0.96,
+  depthScale: 1.43,
   edgeRoundness: STARTUP_EDGE_ROUNDNESS,
   matteAmount: 0,
   staticLeanAmount: 0.18,
@@ -1707,8 +1707,8 @@ function getAutoFitBookCount() {
 }
 
 function getBookX(index) {
-  const { centers, span } = getWrapConfig();
-  return wrapCentered(centers[index] - state.offset, span);
+  const { centers, cycle } = getWrapConfig();
+  return wrapCentered(centers[index] - state.offset, cycle);
 }
 
 function getBookFaceTurn(hoverMix) {
