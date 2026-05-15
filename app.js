@@ -92,8 +92,8 @@ const STARTUP_SETTINGS = {
   shelfRotationZ: 0,
   bookDepthOffset: 0,
   depthAlign: 0,
-  bookCount: 25,
-  bookRotationOverrides: Array.from({ length: 25 }, () => ({ x: 0, y: 0, z: 0 })),
+  bookCount: 19,
+  bookRotationOverrides: Array.from({ length: 19 }, () => ({ x: 0, y: 0, z: 0 })),
   colors: {
     cover: "#c7612f",
     pages: "#f4ecdb",
@@ -1207,7 +1207,7 @@ function getBookDimensions(index, count) {
   return {
     width: randomRange(minWidthForHeight, maxWidthForHeight),
     height,
-    depth: randomRange(0.27, 0.4),
+    depth: randomRange(0.32, 0.4),
   };
 }
 
@@ -1684,6 +1684,34 @@ function moveTowardsWrapped(current, target, cycle, easing) {
   return wrapCentered(current + delta * easing, cycle);
 }
 
+function transformPoint(matrix, point) {
+  const x = point[0];
+  const y = point[1];
+  const z = point[2];
+  const w = point[3] ?? 1;
+
+  const outX = (matrix[0] * x) + (matrix[4] * y) + (matrix[8] * z) + (matrix[12] * w);
+  const outY = (matrix[1] * x) + (matrix[5] * y) + (matrix[9] * z) + (matrix[13] * w);
+  const outZ = (matrix[2] * x) + (matrix[6] * y) + (matrix[10] * z) + (matrix[14] * w);
+  const outW = (matrix[3] * x) + (matrix[7] * y) + (matrix[11] * z) + (matrix[15] * w);
+
+  return [outX, outY, outZ, outW];
+}
+
+function getProjectionWithShelfRotation() {
+  const projection = perspective(Math.PI / 4, gl.canvas.width / gl.canvas.height, 0.1, 100);
+  let projectionWithRotation = projection;
+  if (state.sizePattern === "verticalStack") {
+    projectionWithRotation = multiply(projectionWithRotation, rotationZ(Math.PI / 2));
+  }
+  if (state.shelfRotationX !== 0 || state.shelfRotationY !== 0 || state.shelfRotationZ !== 0) {
+    projectionWithRotation = multiply(projectionWithRotation, rotationX(state.shelfRotationX));
+    projectionWithRotation = multiply(projectionWithRotation, rotationY(state.shelfRotationY));
+    projectionWithRotation = multiply(projectionWithRotation, rotationZ(state.shelfRotationZ));
+  }
+  return projectionWithRotation;
+}
+
 function getBookLean(index, book, timeSeconds) {
   const animatedLean = state.leanAngle > 0
     ? (
@@ -1694,6 +1722,11 @@ function getBookLean(index, book, timeSeconds) {
     : 0;
   const staticLean = getStaticLeanForBook(book);
   return animatedLean + staticLean;
+}
+
+function getEffectiveZLean(index, book, timeSeconds, hoverMix = book.hoverMix) {
+  const combinedLean = getBookLean(index, book, timeSeconds);
+  return getBookRotationOverride(index).z + (state.hoverResetRotation ? combinedLean * (1 - hoverMix) : combinedLean);
 }
 
 function getRotationPatternValue(index, timeSeconds, book) {
@@ -1784,8 +1817,7 @@ function createMatrixForBook(book, index, x, timeSeconds, projection, resolvedPo
     : 0;
   const baselineY = book.height / 2 - 1.28 + state.shelfVerticalOffset;
   const y = baselineY + bob + hoverMix * 0.02;
-  const combinedLean = getBookLean(index, book, timeSeconds);
-  const desiredLean = rotationOverride.z + (state.hoverResetRotation ? combinedLean * (1 - hoverMix) : combinedLean);
+  const desiredLean = getEffectiveZLean(index, book, timeSeconds, hoverMix);
   const faceTurn = getBookFaceTurn(hoverMix) - rotationOverride.y;
   const hoverLift = hoverMix * 0.9;
   const rawLeanShift = clamp(
@@ -1796,29 +1828,36 @@ function createMatrixForBook(book, index, x, timeSeconds, projection, resolvedPo
   const xTilt = getBookXTilt(index, book, timeSeconds, hoverMix, true);
   const leftIndex = (index - 1 + books.length) % books.length;
   const rightIndex = (index + 1) % books.length;
-  const selfHalf = getBookHalfSpan(book, hoverMix, 0, xTilt, faceTurn);
+  const selfHalf = getBookHalfSpan(book, hoverMix, desiredLean, xTilt, faceTurn);
   const leftBook = books[leftIndex];
   const rightBook = books[rightIndex];
-  const leftFaceTurn = getBookFaceTurn(leftBook.hoverMix) - getBookRotationOverride(leftIndex).y;
-  const rightFaceTurn = getBookFaceTurn(rightBook.hoverMix) - getBookRotationOverride(rightIndex).y;
+  const leftHoverMix = leftBook.hoverMix;
+  const rightHoverMix = rightBook.hoverMix;
+  const leftDesiredLean = getEffectiveZLean(leftIndex, leftBook, timeSeconds, leftHoverMix);
+  const rightDesiredLean = getEffectiveZLean(rightIndex, rightBook, timeSeconds, rightHoverMix);
+  const leftFaceTurn = getBookFaceTurn(leftHoverMix) - getBookRotationOverride(leftIndex).y;
+  const rightFaceTurn = getBookFaceTurn(rightHoverMix) - getBookRotationOverride(rightIndex).y;
   const leftHalf = getBookHalfSpan(
     leftBook,
-    leftBook.hoverMix,
-    0,
-    getBookXTilt(leftIndex, leftBook, timeSeconds, leftBook.hoverMix, true),
+    leftHoverMix,
+    leftDesiredLean,
+    getBookXTilt(leftIndex, leftBook, timeSeconds, leftHoverMix, true),
     leftFaceTurn,
   );
   const rightHalf = getBookHalfSpan(
     rightBook,
-    rightBook.hoverMix,
-    0,
-    getBookXTilt(rightIndex, rightBook, timeSeconds, rightBook.hoverMix, true),
+    rightHoverMix,
+    rightDesiredLean,
+    getBookXTilt(rightIndex, rightBook, timeSeconds, rightHoverMix, true),
     rightFaceTurn,
   );
   const leftDistance = wrapCentered(resolvedPositions[index] - resolvedPositions[leftIndex], cycle);
   const rightDistance = wrapCentered(resolvedPositions[rightIndex] - resolvedPositions[index], cycle);
-  const leftGap = Math.max(0, Math.abs(leftDistance) - (leftHalf + selfHalf) - 0.006);
-  const rightGap = Math.max(0, Math.abs(rightDistance) - (selfHalf + rightHalf) - 0.006);
+  const tiltRisk = Math.abs(Math.sin(desiredLean));
+  const thicknessSafety = ((book.depth + leftBook.depth + rightBook.depth) / 3) * 0.2;
+  const leanSafetyPad = 0.012 + (tiltRisk * 0.02) + thicknessSafety;
+  const leftGap = Math.max(0, Math.abs(leftDistance) - (leftHalf + selfHalf) - leanSafetyPad);
+  const rightGap = Math.max(0, Math.abs(rightDistance) - (selfHalf + rightHalf) - leanSafetyPad);
   const leanShift = clamp(rawLeanShift, -leftGap, rightGap);
   const finalLean = Math.atan2(leanShift, Math.max(book.height * 0.42, 0.0001));
   const theta = Math.PI / 2 - faceTurn;
@@ -2518,6 +2557,7 @@ function updateHoveredBook(clientX, clientY) {
   }
   const aspect = gl.canvas.width / Math.max(gl.canvas.height, 1);
   const tanHalfFov = Math.tan(Math.PI / 8);
+  const projectionWithRotation = getProjectionWithShelfRotation();
   let bestIndex = -1;
   let bestScore = Infinity;
   let bestDepth = -Infinity;
@@ -2527,9 +2567,18 @@ function updateHoveredBook(clientX, clientY) {
     const worldX = Number.isFinite(book.drawX) ? book.drawX : getBookX(index);
     const hoverMix = book.hoverMix;
     const worldZ = -7 + hoverMix * 0.9;
-    const worldY = (book.height / 2 - 1.28) + hoverMix * 0.02;
-    const projectedX = worldX / (-worldZ * tanHalfFov * aspect);
-    const projectedY = worldY / (-worldZ * tanHalfFov);
+    const hasMotionOffsets = state.depthSwing > 0 || state.leanAngle > 0 || state.waveTilt > 0;
+    const bob = hasMotionOffsets
+      ? Math.sin(index * 0.8 + sampleTime * 1.05 + book.seed) * 0.03
+      : 0;
+    const baselineY = book.height / 2 - 1.28 + state.shelfVerticalOffset;
+    const worldY = baselineY + bob + hoverMix * 0.02;
+    const clip = transformPoint(projectionWithRotation, [worldX, worldY, worldZ, 1]);
+    if (Math.abs(clip[3]) < 0.00001) {
+      return;
+    }
+    const projectedX = clip[0] / clip[3];
+    const projectedY = clip[1] / clip[3];
     const combinedLean = getBookLean(index, book, sampleTime);
     const zLean = getBookRotationOverride(index).z + (state.hoverResetRotation ? combinedLean * (1 - hoverMix) : combinedLean);
     const xTilt = getBookXTilt(index, book, sampleTime, hoverMix, true);
@@ -2540,8 +2589,15 @@ function updateHoveredBook(clientX, clientY) {
       xTilt,
       getBookFaceTurn(hoverMix) - getBookRotationOverride(index).y,
     ) / (-worldZ * tanHalfFov * aspect);
-    const halfHeight = ((book.height / 2) + (Math.abs(Math.sin(xTilt)) * book.depth))
-      / (-worldZ * tanHalfFov);
+    const topClip = transformPoint(projectionWithRotation, [worldX, worldY + (book.height / 2), worldZ, 1]);
+    const bottomClip = transformPoint(projectionWithRotation, [worldX, worldY - (book.height / 2), worldZ, 1]);
+    if (Math.abs(topClip[3]) < 0.00001 || Math.abs(bottomClip[3]) < 0.00001) {
+      return;
+    }
+    const topY = topClip[1] / topClip[3];
+    const bottomY = bottomClip[1] / bottomClip[3];
+    const halfHeight = Math.max(Math.abs(topY - projectedY), Math.abs(projectedY - bottomY))
+      + (Math.abs(Math.sin(xTilt)) * book.depth / Math.max(-worldZ * tanHalfFov, 0.001));
     const hitPaddingX = 0.03;
     const hitPaddingY = 0.04;
     const insideX = Math.abs(normalizedX - projectedX) <= halfWidth + hitPaddingX;
