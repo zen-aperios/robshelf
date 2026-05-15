@@ -2874,6 +2874,43 @@ function getBookLinkUrl(bookIndex) {
   return books?.[bookIndex]?.artSource?.linkUrl || "";
 }
 
+function navigateToBookLink(bookIndex, event) {
+  const linkUrl = getBookLinkUrl(bookIndex);
+  const hasCustomHandler = typeof window.onBookClick === "function";
+  console.log("Bookshelf click", {
+    bookIndex,
+    linkUrl,
+    hasCustomHandler,
+    book: books?.[bookIndex],
+  });
+
+  let allowDefaultNavigation = true;
+  if (hasCustomHandler) {
+    const handlerResult = window.onBookClick({
+      bookIndex,
+      book: books?.[bookIndex],
+      event,
+      linkUrl,
+    });
+    if (handlerResult === false) {
+      allowDefaultNavigation = false;
+    }
+  }
+
+  if (!linkUrl) {
+    console.warn("Bookshelf click had no linkUrl", { bookIndex });
+    return;
+  }
+
+  if (!allowDefaultNavigation) {
+    console.log("Bookshelf navigation skipped by custom handler", { bookIndex, linkUrl });
+    return;
+  }
+
+  console.log("Bookshelf navigating to", linkUrl);
+  window.location.assign(linkUrl);
+}
+
 function updateCanvasCursor() {
   if (!canvas) {
     return;
@@ -2904,20 +2941,7 @@ canvas.addEventListener("pointerup", (event) => {
     // This was a click on a book
     state.clickedIndex = state.hoveredIndex;
     playClickSound(state.hoveredIndex);
-    
-    // Trigger custom click handler if defined
-    if (window.onBookClick && typeof window.onBookClick === "function") {
-      window.onBookClick({
-        bookIndex: state.hoveredIndex,
-        book: books[state.hoveredIndex],
-        event: event
-      });
-    } else {
-      const linkUrl = getBookLinkUrl(state.hoveredIndex);
-      if (linkUrl) {
-        window.location.href = linkUrl;
-      }
-    }
+    navigateToBookLink(state.hoveredIndex, event);
   }
   
   releasePointer();
