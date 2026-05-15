@@ -17,7 +17,7 @@ let loaderAnimation = null;
 let loaderAnimationReady = false;
 
 function resolveLoaderAnimationPath() {
-  return resolveLoadLogoUrl() || "./logo_lottie_v1.json";
+  return resolveLoadLogoUrl() || "./logo_lottie_v3.json";
 }
 
 function ensureLoaderAnimation() {
