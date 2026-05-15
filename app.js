@@ -226,6 +226,8 @@ function normalizeCmsBookEntry(entry) {
   const spineUrl = entry.spineUrl ?? entry.spine ?? entry.binderUrl ?? entry.binder ?? entry.side ?? entry.spineImage ?? "";
   const hoverSoundUrl = entry.hoverSoundUrl ?? entry.bookHoverSound ?? entry.hoverSound ?? "";
   const clickSoundUrl = entry.clickSoundUrl ?? entry.bookClickSound ?? entry.clickSound ?? "";
+  const linkUrl = entry.linkUrl ?? entry.href ?? entry.url ?? entry.link ?? "";
+  const linkKey = entry.linkKey ?? entry.bookLink ?? entry.slug ?? "";
   if (!coverUrl && !backUrl && !spineUrl) {
     return null;
   }
@@ -236,6 +238,8 @@ function normalizeCmsBookEntry(entry) {
     spineUrl: spineUrl || coverUrl,
     hoverSoundUrl,
     clickSoundUrl,
+    linkUrl,
+    linkKey,
   };
 }
 
@@ -253,6 +257,7 @@ function getWebflowCmsBooks() {
     const coverImage = item.querySelector("[data-bookshelf-cover]");
     const backImage = item.querySelector("[data-bookshelf-back]");
     const spineImage = item.querySelector("[data-bookshelf-spine]");
+    const linkElement = item.closest("a[href]") || item.querySelector("a[href]");
     const coverUrl = coverImage?.currentSrc || coverImage?.src || "";
     const backUrl = backImage?.currentSrc || backImage?.src || "";
     const spineUrl = spineImage?.currentSrc || spineImage?.src || "";
@@ -268,6 +273,8 @@ function getWebflowCmsBooks() {
       spineUrl,
       hoverSoundUrl,
       clickSoundUrl,
+      linkUrl: linkElement?.href || "",
+      linkKey: item.getAttribute("data-book-link") || linkElement?.getAttribute("data-book-link") || "",
     });
   }).filter(Boolean);
 }
@@ -2863,12 +2870,30 @@ function playClickSound(bookIndex) {
   }
 }
 
+function getBookLinkUrl(bookIndex) {
+  return books?.[bookIndex]?.artSource?.linkUrl || "";
+}
+
+function updateCanvasCursor() {
+  if (!canvas) {
+    return;
+  }
+  if (state.pointerDown) {
+    canvas.style.cursor = "grabbing";
+    return;
+  }
+  canvas.style.cursor = state.hoveredIndex >= 0 && getBookLinkUrl(state.hoveredIndex)
+    ? "pointer"
+    : "grab";
+}
+
 canvas.addEventListener("pointerdown", (event) => {
   state.pointerDown = true;
   state.lastPointerX = event.clientX;
   state.lastPointerY = event.clientY;
   state.pointerDragDistance = 0;
   canvas.setPointerCapture(event.pointerId);
+  updateCanvasCursor();
 });
 
 canvas.addEventListener("pointerup", (event) => {
@@ -2887,6 +2912,11 @@ canvas.addEventListener("pointerup", (event) => {
         book: books[state.hoveredIndex],
         event: event
       });
+    } else {
+      const linkUrl = getBookLinkUrl(state.hoveredIndex);
+      if (linkUrl) {
+        window.location.href = linkUrl;
+      }
     }
   }
   
@@ -2903,6 +2933,9 @@ canvas.addEventListener("pointermove", (event) => {
     if (state.hoveredIndex !== previousHovered && state.hoveredIndex >= 0) {
       playHoverSound(state.hoveredIndex);
     }
+    if (state.hoveredIndex !== previousHovered) {
+      updateCanvasCursor();
+    }
     return;
   }
   const deltaX = event.clientX - state.lastPointerX;
@@ -2918,12 +2951,14 @@ canvas.addEventListener("pointermove", (event) => {
 function releasePointer() {
   state.pointerDown = false;
   state.pointerDragDistance = 0;
+  updateCanvasCursor();
 }
 
 canvas.addEventListener("pointercancel", releasePointer);
 canvas.addEventListener("pointerleave", () => {
   releasePointer();
   state.hoveredIndex = -1;
+  updateCanvasCursor();
 });
 
 window.addEventListener("wheel", (event) => {
