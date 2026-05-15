@@ -2,11 +2,33 @@ const canvas = document.getElementById("scene");
 const panel = document.querySelector(".panel");
 const loaderEl = document.getElementById("bookshelfLoader");
 const loaderFillEl = document.getElementById("bookshelfLoaderFill");
+const loaderGhostImg = document.querySelector(".bookshelf-loader__ghost");
+const loaderFillImg = document.querySelector(".bookshelf-loader__fill");
 const gl = canvas.getContext("webgl", { antialias: true, preserveDrawingBuffer: true });
 
 if (!gl) {
   throw new Error("WebGL is not available in this browser.");
 }
+
+function resolveLoadLogoUrl() {
+  const scoped = document.querySelector("[data-load-logo]");
+  return scoped?.getAttribute("data-load-logo") || "";
+}
+
+function applyLoadLogoOverride() {
+  const logoUrl = resolveLoadLogoUrl();
+  if (!logoUrl) {
+    return;
+  }
+  if (loaderGhostImg) {
+    loaderGhostImg.src = logoUrl;
+  }
+  if (loaderFillImg) {
+    loaderFillImg.src = logoUrl;
+  }
+}
+
+applyLoadLogoOverride();
 
 const RAW_STARTUP_SETTINGS = window.BOOKSHELF_STARTUP_SETTINGS ?? {};
 const EDGE_BEVEL_MAX = 0.04;
