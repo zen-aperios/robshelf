@@ -282,6 +282,15 @@ function getWebflowCmsBooks() {
   }).filter(Boolean);
 }
 
+function resolveClickedBookIndex(clientX, clientY) {
+  const previousHoveredIndex = state.hoveredIndex;
+  updateHoveredBook(clientX, clientY);
+  if (state.hoveredIndex >= 0) {
+    return state.hoveredIndex;
+  }
+  return state.pointerDownBookIndex >= 0 ? state.pointerDownBookIndex : previousHoveredIndex;
+}
+
 function shuffleArray(items) {
   const next = items.slice();
   for (let index = next.length - 1; index > 0; index -= 1) {
@@ -485,6 +494,7 @@ const state = {
   lastPointerX: 0,
   lastPointerY: 0,
   pointerDragDistance: 0,
+  pointerDownBookIndex: -1,
   hoveredIndex: -1,
   previousHoveredIndex: -1,
   clickedIndex: -1,
@@ -2364,7 +2374,7 @@ let lastCmsSignature = "";
 
 function buildCmsSignature(cmsBooks) {
   return cmsBooks
-    .map((book) => `${book.coverUrl || ""}|${book.backUrl || ""}|${book.spineUrl || ""}`)
+    .map((book) => `${book.coverUrl || ""}|${book.backUrl || ""}|${book.spineUrl || ""}|${book.linkUrl || ""}|${book.linkKey || ""}`)
     .join("::");
 }
 
@@ -2950,21 +2960,23 @@ canvas.addEventListener("pointerdown", (event) => {
   state.lastPointerX = event.clientX;
   state.lastPointerY = event.clientY;
   state.pointerDragDistance = 0;
+  state.pointerDownBookIndex = resolveClickedBookIndex(event.clientX, event.clientY);
   canvas.setPointerCapture(event.pointerId);
   updateCanvasCursor();
 });
 
 canvas.addEventListener("pointerup", (event) => {
   if (!state.pointerDown) return;
-  
+
   // Check if this was a click on a book (not a drag)
-  if (state.pointerDragDistance < 10 && state.hoveredIndex >= 0) {
+  const clickedBookIndex = resolveClickedBookIndex(event.clientX, event.clientY);
+  if (state.pointerDragDistance < 10 && clickedBookIndex >= 0) {
     // This was a click on a book
-    state.clickedIndex = state.hoveredIndex;
-    playClickSound(state.hoveredIndex);
-    navigateToBookLink(state.hoveredIndex, event);
+    state.clickedIndex = clickedBookIndex;
+    playClickSound(clickedBookIndex);
+    navigateToBookLink(clickedBookIndex, event);
   }
-  
+
   releasePointer();
 });
 
@@ -2996,12 +3008,15 @@ canvas.addEventListener("pointermove", (event) => {
 function releasePointer() {
   state.pointerDown = false;
   state.pointerDragDistance = 0;
+  state.pointerDownBookIndex = -1;
   updateCanvasCursor();
 }
 
 canvas.addEventListener("pointercancel", releasePointer);
 canvas.addEventListener("pointerleave", () => {
-  releasePointer();
+  if (state.pointerDown) {
+    return;
+  }
   state.hoveredIndex = -1;
   updateCanvasCursor();
 });
