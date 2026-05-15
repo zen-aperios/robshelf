@@ -117,7 +117,7 @@ const STARTUP_SETTINGS = {
   sizePattern: "uniform",
   loadAnimation: "dropFade",
   sceneTone: "darker",
-  widthScale: 2.6,
+  widthScale: 2.75,
   heightScale: 0.96,
   depthScale: 1.43,
   edgeRoundness: STARTUP_EDGE_ROUNDNESS,
