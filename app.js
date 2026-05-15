@@ -202,6 +202,9 @@ function getWebflowCmsBooks() {
     return globalBooks.map(normalizeCmsBookEntry).filter(Boolean);
   }
 
+  const collectionScope = document.querySelector("[data-book-hover-sound], [data-book-click-sound]");
+  const collectionHoverSound = collectionScope?.getAttribute("data-book-hover-sound") || "";
+  const collectionClickSound = collectionScope?.getAttribute("data-book-click-sound") || "";
   const items = document.querySelectorAll("[data-bookshelf-cms-item]");
   return Array.from(items).map((item) => {
     const coverImage = item.querySelector("[data-bookshelf-cover]");
@@ -210,8 +213,12 @@ function getWebflowCmsBooks() {
     const coverUrl = coverImage?.currentSrc || coverImage?.src || "";
     const backUrl = backImage?.currentSrc || backImage?.src || "";
     const spineUrl = spineImage?.currentSrc || spineImage?.src || "";
-    const hoverSoundUrl = item.getAttribute("data-book-hover-sound") || "";
-    const clickSoundUrl = item.getAttribute("data-book-click-sound") || "";
+    const localHoverSound = item.getAttribute("data-book-hover-sound") || "";
+    const localClickSound = item.getAttribute("data-book-click-sound") || "";
+    const inheritedHoverSound = item.closest("[data-book-hover-sound]")?.getAttribute("data-book-hover-sound") || "";
+    const inheritedClickSound = item.closest("[data-book-click-sound]")?.getAttribute("data-book-click-sound") || "";
+    const hoverSoundUrl = localHoverSound || inheritedHoverSound || collectionHoverSound;
+    const clickSoundUrl = localClickSound || inheritedClickSound || collectionClickSound;
     return normalizeCmsBookEntry({
       coverUrl,
       backUrl,
