@@ -535,7 +535,7 @@ function finishLoader() {
   window.setTimeout(() => {
     state.loadAnimationStartTime = performance.now() * 0.001;
     state.loadAnimationArmed = true;
-    state.initialLeanSettleUntil = state.loadAnimationStartTime + 0.9;
+    state.initialLeanSettleUntil = state.loadAnimationStartTime + 1.35;
     if (loaderEl) {
       requestAnimationFrame(() => {
         loaderEl.classList.add("is-hidden");
@@ -1350,6 +1350,9 @@ function buildBooks() {
   const tiltedCount = clamp(Math.round(state.bookCount * 0.18), 3, 10);
   const tiltedIndices = new Set();
   const maxTilts = Math.min(tiltedCount, Math.ceil(state.bookCount / 2));
+  const dimensionsList = Array.from({ length: state.bookCount }, (_, index) => (
+    applyDimensionScale(getBookDimensions(index, state.bookCount))
+  ));
   const candidateOrder = Array.from({ length: state.bookCount }, (_, index) => index)
     .sort(() => Math.random() - 0.5);
 
@@ -1362,11 +1365,24 @@ function buildBooks() {
     if (tiltedIndices.has(left) || tiltedIndices.has(right)) {
       continue;
     }
+    const current = dimensionsList[index];
+    const leftBook = dimensionsList[left];
+    const rightBook = dimensionsList[right];
+    const shorterNeighbor = Math.min(leftBook.height, rightBook.height);
+    const averageNeighborDepth = (leftBook.depth + rightBook.depth) / 2;
+    // Avoid leaning books that are notably taller than immediate neighbors.
+    if (current.height > (shorterNeighbor * 1.04)) {
+      continue;
+    }
+    // Skip very thick books when neighbors are comparatively slim; these seeds tend to shimmy.
+    if (current.depth > (averageNeighborDepth * 1.12)) {
+      continue;
+    }
     tiltedIndices.add(index);
   }
 
   books = Array.from({ length: state.bookCount }, (_, index) => {
-    const dimensions = applyDimensionScale(getBookDimensions(index, state.bookCount));
+    const dimensions = dimensionsList[index];
     const hueMix = ((index % 6) - 2.5) * 0.045;
     const cmsArt = useCmsArt ? shuffledCmsLibrary[index % shuffledCmsLibrary.length] : null;
     const hasCmsFace = Boolean(cmsArt?.coverUrl);
@@ -2087,7 +2103,11 @@ function createMatrixForBook(book, index, x, timeSeconds, projection, resolvedPo
     : 0;
   const baselineY = book.height / 2 - 1.28 + state.shelfVerticalOffset;
   const y = baselineY + bob + hoverMix * 0.02 + loadYOffset;
-  const desiredLean = getEffectiveZLean(index, book, timeSeconds, hoverMix);
+  const rawDesiredLean = getEffectiveZLean(index, book, timeSeconds, hoverMix);
+  const settleLeanMix = timeSeconds < state.initialLeanSettleUntil
+    ? clamp(1 - ((state.initialLeanSettleUntil - timeSeconds) / 1.35), 0, 1)
+    : 1;
+  const desiredLean = rawDesiredLean * settleLeanMix;
   const faceTurn = getBookFaceTurn(hoverMix) - rotationOverride.y;
   const hoverLift = hoverMix * 0.9;
   const rawLeanShift = getLeanCenterShift(book, desiredLean, hoverMix);
@@ -2250,8 +2270,13 @@ function render(now) {
 
   books.forEach((book, index) => {
     const targetX = resolvedPositions[index];
-    const easing = book.hoverMix > 0.001 ? state.hoverSpeed * 0.55 : state.returnSpeed * 0.55;
-    book.positionX = moveTowardsWrapped(book.positionX, targetX, cycle, easing);
+    if (timeSeconds < state.initialLeanSettleUntil) {
+      // During first-load settle, snap to resolved positions to avoid transient overlap crossings.
+      book.positionX = targetX;
+    } else {
+      const easing = book.hoverMix > 0.001 ? state.hoverSpeed * 0.55 : state.returnSpeed * 0.55;
+      book.positionX = moveTowardsWrapped(book.positionX, targetX, cycle, easing);
+    }
     const drawX = wrapCentered(book.positionX, cycle);
     provisionalDrawPositions[index] = drawX;
   });
