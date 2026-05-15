@@ -479,6 +479,7 @@ const state = {
   renderTimeSeconds: 0,
   loadAnimationStartTime: 0,
   loadAnimationArmed: true,
+  initialLeanSettleUntil: 0,
   loadProgressTotal: 0,
   loadProgressDone: 0,
   loadStartedAtMs: 0,
@@ -534,6 +535,7 @@ function finishLoader() {
   window.setTimeout(() => {
     state.loadAnimationStartTime = performance.now() * 0.001;
     state.loadAnimationArmed = true;
+    state.initialLeanSettleUntil = state.loadAnimationStartTime + 0.9;
     if (loaderEl) {
       requestAnimationFrame(() => {
         loaderEl.classList.add("is-hidden");
@@ -1396,6 +1398,7 @@ function buildBooks() {
         ? (Math.random() < 0.5 ? -1 : 1) * randomRange(0.75, 1.1)
         : 0,
       hoverMix: 0,
+      leanShiftSmoothed: 0,
       positionX: 0,
       palette,
       artBuildSerial: buildSerial,
@@ -1775,7 +1778,10 @@ function getBookDynamicHalfSpan(book, index, timeSeconds) {
   const leanAngle = getBookRotationOverride(index).z + (state.hoverResetRotation ? combinedLean * (1 - hoverMix) : combinedLean);
   const pitchAngle = getBookXTilt(index, book, timeSeconds, hoverMix, true);
   const faceTurn = getBookFaceTurn(hoverMix) - getBookRotationOverride(index).y;
-  return getBookHalfSpan(book, hoverMix, leanAngle, pitchAngle, faceTurn);
+  const baseHalfSpan = getBookHalfSpan(book, hoverMix, leanAngle, pitchAngle, faceTurn);
+  const leanShiftAbs = Math.abs(getLeanCenterShift(book, leanAngle, hoverMix));
+  // Include lean-induced center translation in live collision envelope.
+  return baseHalfSpan + (leanShiftAbs * 0.92);
 }
 
 function resolveLiveNeighborPositions(basePositions, timeSeconds, cycle) {
@@ -1983,6 +1989,14 @@ function getEffectiveZLean(index, book, timeSeconds, hoverMix = book.hoverMix) {
   return getBookRotationOverride(index).z + (state.hoverResetRotation ? combinedLean * (1 - hoverMix) : combinedLean);
 }
 
+function getLeanCenterShift(book, leanAngle, hoverMix) {
+  return clamp(
+    Math.tan(leanAngle) * book.height * 0.42,
+    -book.height * 0.78,
+    book.height * 0.78,
+  ) * (1 - hoverMix);
+}
+
 function getRotationPatternValue(index, timeSeconds, book) {
   const centerOffset = index - (state.bookCount - 1) / 2;
   const spread = Math.max(1, state.bookCount / 2);
@@ -2074,11 +2088,7 @@ function createMatrixForBook(book, index, x, timeSeconds, projection, resolvedPo
   const desiredLean = getEffectiveZLean(index, book, timeSeconds, hoverMix);
   const faceTurn = getBookFaceTurn(hoverMix) - rotationOverride.y;
   const hoverLift = hoverMix * 0.9;
-  const rawLeanShift = clamp(
-    Math.tan(desiredLean) * book.height * 0.42,
-    -book.height * 0.78,
-    book.height * 0.78,
-  ) * (1 - hoverMix);
+  const rawLeanShift = getLeanCenterShift(book, desiredLean, hoverMix);
   const xTilt = getBookXTilt(index, book, timeSeconds, hoverMix, true);
   const { leftIndex, rightIndex } = getLiveNeighborIndices(index, resolvedPositions, cycle);
   const selfHalf = getBookHalfSpan(book, hoverMix, desiredLean, xTilt, faceTurn);
@@ -2106,12 +2116,47 @@ function createMatrixForBook(book, index, x, timeSeconds, projection, resolvedPo
   );
   const leftDistance = wrapCentered(resolvedPositions[index] - resolvedPositions[leftIndex], cycle);
   const rightDistance = wrapCentered(resolvedPositions[rightIndex] - resolvedPositions[index], cycle);
+  const leftNeighborShift = getLeanCenterShift(leftBook, leftDesiredLean, leftHoverMix);
+  const rightNeighborShift = getLeanCenterShift(rightBook, rightDesiredLean, rightHoverMix);
+  const leftNeighborIntrusion = Math.max(0, leftNeighborShift);
+  const rightNeighborIntrusion = Math.max(0, -rightNeighborShift);
   const tiltRisk = Math.abs(Math.sin(desiredLean));
   const thicknessSafety = ((book.depth + leftBook.depth + rightBook.depth) / 3) * 0.2;
   const leanSafetyPad = 0.012 + (tiltRisk * 0.02) + thicknessSafety;
-  const leftGap = Math.max(0, Math.abs(leftDistance) - (leftHalf + selfHalf) - leanSafetyPad);
-  const rightGap = Math.max(0, Math.abs(rightDistance) - (selfHalf + rightHalf) - leanSafetyPad);
-  const leanShift = clamp(rawLeanShift, -leftGap, rightGap);
+  const leftGap = Math.max(0, Math.abs(leftDistance) - (leftHalf + selfHalf) - leanSafetyPad - leftNeighborIntrusion);
+  const rightGap = Math.max(0, Math.abs(rightDistance) - (selfHalf + rightHalf) - leanSafetyPad - rightNeighborIntrusion);
+  const sideClampedShift = clamp(rawLeanShift, -leftGap, rightGap);
+  const totalClearance = leftGap + rightGap;
+  const clearanceDemand = Math.max(selfHalf * 0.7, 0.001);
+  const clearanceFactor = clamp(totalClearance / clearanceDemand, 0, 1);
+  const startupSettleMix = timeSeconds < state.initialLeanSettleUntil
+    ? clamp((state.initialLeanSettleUntil - timeSeconds) / 0.9, 0, 1)
+    : 0;
+  const startupClearanceFactor = startupSettleMix > 0
+    ? clamp((totalClearance / Math.max(selfHalf * 1.15, 0.001)), 0, 1)
+    : 1;
+  const leaningRight = sideClampedShift > 0;
+  const targetNeighbor = leaningRight ? rightBook : leftBook;
+  const targetNeighborHalf = leaningRight ? rightHalf : leftHalf;
+  const heightRatio = clamp((targetNeighbor.height || 0.001) / Math.max(book.height, 0.001), 0, 1.25);
+  const leaningToShorter = book.height > targetNeighbor.height;
+  const heightSafetyFactor = leaningToShorter
+    ? clamp((heightRatio * 0.55) + ((targetNeighborHalf / Math.max(selfHalf, 0.001)) * 0.12), 0.08, 0.7)
+    : 1;
+  const strictLeanShift = sideClampedShift * clearanceFactor * startupClearanceFactor * heightSafetyFactor;
+  const leanShiftTarget = (leftGap <= 0.0005 && strictLeanShift < 0) || (rightGap <= 0.0005 && strictLeanShift > 0)
+    ? 0
+    : strictLeanShift;
+  const delta = leanShiftTarget - book.leanShiftSmoothed;
+  const deadzone = 0.0025;
+  const maxStep = 0.018;
+  if (Math.abs(delta) <= deadzone) {
+    book.leanShiftSmoothed = leanShiftTarget;
+  } else {
+    const step = Math.max(-maxStep, Math.min(maxStep, delta));
+    book.leanShiftSmoothed += step;
+  }
+  const leanShift = book.leanShiftSmoothed;
   const finalLean = Math.atan2(leanShift, Math.max(book.height * 0.42, 0.0001));
   const theta = Math.PI / 2 - faceTurn;
   const bookFrontExtent = (Math.abs(Math.sin(theta)) * (book.width / 2))
