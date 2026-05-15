@@ -1,5 +1,7 @@
 const canvas = document.getElementById("scene");
 const panel = document.querySelector(".panel");
+const loaderEl = document.getElementById("bookshelfLoader");
+const loaderFillEl = document.getElementById("bookshelfLoaderFill");
 const gl = canvas.getContext("webgl", { antialias: true, preserveDrawingBuffer: true });
 
 if (!gl) {
@@ -455,7 +457,68 @@ const state = {
   renderTimeSeconds: 0,
   loadAnimationStartTime: 0,
   loadAnimationArmed: true,
+  loadProgressTotal: 0,
+  loadProgressDone: 0,
+  loadStartedAtMs: 0,
 };
+
+function setLoaderProgress(progress) {
+  if (!loaderFillEl) {
+    return;
+  }
+  const p = clamp(progress, 0, 1);
+  const hiddenTop = (1 - p) * 100;
+  loaderFillEl.style.clipPath = `inset(${hiddenTop}% 0 0 0)`;
+}
+
+function startLoader(total = 1) {
+  state.loadProgressTotal = Math.max(1, total);
+  state.loadProgressDone = 0;
+  state.loadStartedAtMs = performance.now();
+  state.loadAnimationArmed = false;
+  if (loaderEl) {
+    loaderEl.classList.remove("is-hidden");
+  }
+  const fillDurationMs = 3000;
+  const startedAt = state.loadStartedAtMs;
+  const tick = () => {
+    const elapsed = performance.now() - startedAt;
+    const timeT = Math.min(elapsed / fillDurationMs, 1);
+    const timeEased = 1 - ((1 - timeT) * (1 - timeT) * (1 - timeT));
+    const assetProgress = state.loadProgressTotal > 0
+      ? (state.loadProgressDone / state.loadProgressTotal)
+      : 0;
+    const blendedProgress = Math.min(timeEased, assetProgress);
+    setLoaderProgress(blendedProgress);
+    if (startedAt === state.loadStartedAtMs && (timeT < 1 || assetProgress < 1)) {
+      requestAnimationFrame(tick);
+    }
+  };
+  requestAnimationFrame(tick);
+}
+
+function stepLoader() {
+  if (state.loadProgressTotal <= 0) {
+    return;
+  }
+  state.loadProgressDone = Math.min(state.loadProgressDone + 1, state.loadProgressTotal);
+}
+
+function finishLoader() {
+  const minVisibleMs = 3000;
+  const elapsedMs = performance.now() - state.loadStartedAtMs;
+  const remainingMs = Math.max(0, minVisibleMs - elapsedMs);
+  setLoaderProgress(1);
+  window.setTimeout(() => {
+    state.loadAnimationStartTime = performance.now() * 0.001;
+    state.loadAnimationArmed = true;
+    if (loaderEl) {
+      requestAnimationFrame(() => {
+        loaderEl.classList.add("is-hidden");
+      });
+    }
+  }, remainingMs);
+}
 
 const ART_ATLAS = {
   size: 1536,
@@ -1259,7 +1322,7 @@ function buildBooks() {
   const useCmsArt = shuffledCmsLibrary.length > 0;
   const buildSerial = state.artBuildSerial + 1;
   state.artBuildSerial = buildSerial;
-  state.loadAnimationArmed = !useCmsArt;
+  startLoader(useCmsArt ? state.bookCount : 1);
   const tiltedCount = clamp(Math.round(state.bookCount * 0.18), 3, 10);
   const tiltedIndices = new Set();
   const maxTilts = Math.min(tiltedCount, Math.ceil(state.bookCount / 2));
@@ -1332,14 +1395,17 @@ function buildBooks() {
         if (state.artBuildSerial === buildSerial) {
           console.warn("Failed to load CMS book art.", error);
         }
+      }).finally(() => {
+        if (state.artBuildSerial === buildSerial) {
+          stepLoader();
+        }
       })
     ));
     Promise.allSettled(artLoads).then(() => {
       if (state.artBuildSerial !== buildSerial) {
         return;
       }
-      state.loadAnimationStartTime = performance.now() * 0.001;
-      state.loadAnimationArmed = true;
+      finishLoader();
     });
   }
 
@@ -1348,8 +1414,8 @@ function buildBooks() {
     book.positionX = initialPositions[index];
   });
   if (!useCmsArt) {
-    state.loadAnimationStartTime = performance.now() * 0.001;
-    state.loadAnimationArmed = true;
+    stepLoader();
+    finishLoader();
   }
   state.minSpacing = Math.max(...books.map((book) => book.depth));
   state.needsBookRefresh = false;
@@ -2124,7 +2190,7 @@ function applyCmsBooksToExistingShelf(cmsBooks) {
   state.cmsBookCursor = 0;
   const buildSerial = state.artBuildSerial + 1;
   state.artBuildSerial = buildSerial;
-  state.loadAnimationArmed = false;
+  startLoader(books.length);
 
   const artLoads = books.map((book, index) => {
     const cmsArt = shuffledCmsLibrary[index % shuffledCmsLibrary.length];
@@ -2149,6 +2215,10 @@ function applyCmsBooksToExistingShelf(cmsBooks) {
       if (state.artBuildSerial === buildSerial) {
         console.warn("Failed to load CMS book art.", error);
       }
+    }).finally(() => {
+      if (state.artBuildSerial === buildSerial) {
+        stepLoader();
+      }
     });
   });
 
@@ -2156,8 +2226,7 @@ function applyCmsBooksToExistingShelf(cmsBooks) {
     if (state.artBuildSerial !== buildSerial) {
       return;
     }
-    state.loadAnimationStartTime = performance.now() * 0.001;
-    state.loadAnimationArmed = true;
+    finishLoader();
   });
 
   updateArtStatus();
