@@ -1,9 +1,7 @@
 const canvas = document.getElementById("scene");
 const panel = document.querySelector(".panel");
 const loaderEl = document.getElementById("bookshelfLoader");
-const loaderFillEl = document.getElementById("bookshelfLoaderFill");
-const loaderGhostImg = document.querySelector(".bookshelf-loader__ghost");
-const loaderFillImg = document.querySelector(".bookshelf-loader__fill");
+const loaderLottieEl = document.getElementById("bookshelfLoaderLottie");
 const gl = canvas.getContext("webgl", { antialias: true, preserveDrawingBuffer: true });
 
 if (!gl) {
@@ -15,20 +13,41 @@ function resolveLoadLogoUrl() {
   return scoped?.getAttribute("data-load-logo") || "";
 }
 
-function applyLoadLogoOverride() {
-  const logoUrl = resolveLoadLogoUrl();
-  if (!logoUrl) {
-    return;
-  }
-  if (loaderGhostImg) {
-    loaderGhostImg.src = logoUrl;
-  }
-  if (loaderFillImg) {
-    loaderFillImg.src = logoUrl;
-  }
+let loaderAnimation = null;
+let loaderAnimationReady = false;
+
+function resolveLoaderAnimationPath() {
+  return resolveLoadLogoUrl() || "./logo_lottie_v1.json";
 }
 
-applyLoadLogoOverride();
+function ensureLoaderAnimation() {
+  if (loaderAnimation || !loaderLottieEl || !window.lottie) {
+    return loaderAnimation;
+  }
+  loaderAnimation = window.lottie.loadAnimation({
+    container: loaderLottieEl,
+    renderer: "svg",
+    loop: false,
+    autoplay: false,
+    path: resolveLoaderAnimationPath(),
+    rendererSettings: {
+      preserveAspectRatio: "xMidYMid meet",
+      progressiveLoad: true,
+    },
+  });
+  loaderAnimation.addEventListener("DOMLoaded", () => {
+    loaderAnimationReady = true;
+  });
+  return loaderAnimation;
+}
+
+if (document.readyState === "complete") {
+  ensureLoaderAnimation();
+} else {
+  window.addEventListener("load", () => {
+    ensureLoaderAnimation();
+  }, { once: true });
+}
 
 const RAW_STARTUP_SETTINGS = window.BOOKSHELF_STARTUP_SETTINGS ?? {};
 const EDGE_BEVEL_MAX = 0.04;
@@ -486,12 +505,13 @@ const state = {
 };
 
 function setLoaderProgress(progress) {
-  if (!loaderFillEl) {
+  const animation = ensureLoaderAnimation();
+  if (!animation || !loaderAnimationReady) {
     return;
   }
   const p = clamp(progress, 0, 1);
-  const hiddenTop = (1 - p) * 100;
-  loaderFillEl.style.clipPath = `inset(${hiddenTop}% 0 0 0)`;
+  const totalFrames = Math.max((animation.totalFrames || 1) - 1, 1);
+  animation.goToAndStop(totalFrames * p, true);
 }
 
 function startLoader(total = 1) {
@@ -502,16 +522,21 @@ function startLoader(total = 1) {
   if (loaderEl) {
     loaderEl.classList.remove("is-hidden");
   }
+  const animation = ensureLoaderAnimation();
+  if (animation) {
+    loaderAnimationReady = loaderAnimationReady || Boolean(animation.totalFrames);
+    animation.stop();
+    animation.goToAndStop(0, true);
+  }
   const fillDurationMs = 3000;
   const startedAt = state.loadStartedAtMs;
   const tick = () => {
     const elapsed = performance.now() - startedAt;
     const timeT = Math.min(elapsed / fillDurationMs, 1);
-    const timeEased = 1 - ((1 - timeT) * (1 - timeT) * (1 - timeT));
     const assetProgress = state.loadProgressTotal > 0
       ? (state.loadProgressDone / state.loadProgressTotal)
       : 0;
-    const blendedProgress = Math.min(timeEased, assetProgress);
+    const blendedProgress = assetProgress < timeT ? assetProgress : timeT;
     setLoaderProgress(blendedProgress);
     if (startedAt === state.loadStartedAtMs && (timeT < 1 || assetProgress < 1)) {
       requestAnimationFrame(tick);
@@ -1347,14 +1372,26 @@ function buildBooks() {
   const buildSerial = state.artBuildSerial + 1;
   state.artBuildSerial = buildSerial;
   startLoader(useCmsArt ? state.bookCount : 1);
-  const tiltedCount = clamp(Math.round(state.bookCount * 0.18), 3, 10);
+  const tiltedCount = clamp(Math.round(state.bookCount * 0.26), 4, 12);
   const tiltedIndices = new Set();
   const maxTilts = Math.min(tiltedCount, Math.ceil(state.bookCount / 2));
   const dimensionsList = Array.from({ length: state.bookCount }, (_, index) => (
     applyDimensionScale(getBookDimensions(index, state.bookCount))
   ));
-  const candidateOrder = Array.from({ length: state.bookCount }, (_, index) => index)
-    .sort(() => Math.random() - 0.5);
+  const startOffset = Math.floor(Math.random() * Math.max(state.bookCount, 1));
+  const stride = Math.max(2, Math.floor(state.bookCount / Math.max(maxTilts, 1)));
+  const candidateOrder = [];
+  const seenCandidates = new Set();
+  for (let pass = 0; pass < stride; pass += 1) {
+    for (let step = 0; step < state.bookCount; step += stride) {
+      const index = (startOffset + step + pass) % state.bookCount;
+      if (seenCandidates.has(index)) {
+        continue;
+      }
+      seenCandidates.add(index);
+      candidateOrder.push(index);
+    }
+  }
 
   for (const index of candidateOrder) {
     if (tiltedIndices.size >= maxTilts) {
