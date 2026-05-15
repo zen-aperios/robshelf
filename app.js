@@ -1,9 +1,9 @@
 const canvas = document.getElementById("scene");
 const panel = document.querySelector(".panel");
-let loaderEl = document.getElementById("bookshelfLoader");
-let loaderFillEl = document.getElementById("bookshelfLoaderFill");
-let loaderGhostImg = document.querySelector(".bookshelf-loader__ghost");
-let loaderFillImg = document.querySelector(".bookshelf-loader__fill");
+const loaderEl = document.getElementById("bookshelfLoader");
+const loaderFillEl = document.getElementById("bookshelfLoaderFill");
+const loaderGhostImg = document.querySelector(".bookshelf-loader__ghost");
+const loaderFillImg = document.querySelector(".bookshelf-loader__fill");
 const gl = canvas.getContext("webgl", { antialias: true, preserveDrawingBuffer: true });
 
 if (!gl) {
@@ -15,39 +15,16 @@ function resolveLoadLogoUrl() {
   return scoped?.getAttribute("data-load-logo") || "";
 }
 
-function ensureLoaderDom() {
-  if (loaderEl && loaderFillEl && loaderGhostImg && loaderFillImg) {
+function applyLoadLogoOverride() {
+  const logoUrl = resolveLoadLogoUrl();
+  if (!logoUrl) {
     return;
   }
-
-  loaderEl = document.createElement("div");
-  loaderEl.id = "bookshelfLoader";
-  loaderEl.className = "bookshelf-loader";
-  loaderEl.setAttribute("aria-hidden", "true");
-  loaderEl.innerHTML = `
-    <div class="bookshelf-loader__logo">
-      <img class="bookshelf-loader__ghost" alt="">
-      <div id="bookshelfLoaderFill" class="bookshelf-loader__fill-wrap">
-        <img class="bookshelf-loader__fill" alt="">
-      </div>
-    </div>
-  `;
-  document.body.prepend(loaderEl);
-  loaderFillEl = loaderEl.querySelector("#bookshelfLoaderFill");
-  loaderGhostImg = loaderEl.querySelector(".bookshelf-loader__ghost");
-  loaderFillImg = loaderEl.querySelector(".bookshelf-loader__fill");
-}
-
-function applyLoadLogoOverride() {
-  ensureLoaderDom();
-  const logoUrl = resolveLoadLogoUrl();
-  const fallbackUrl = "https://cdn.jsdelivr.net/gh/zen-aperios/robshelf@45307c3/logo-fill.svg";
-  const finalUrl = logoUrl || fallbackUrl;
   if (loaderGhostImg) {
-    loaderGhostImg.src = finalUrl;
+    loaderGhostImg.src = logoUrl;
   }
   if (loaderFillImg) {
-    loaderFillImg.src = finalUrl;
+    loaderFillImg.src = logoUrl;
   }
 }
 
