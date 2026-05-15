@@ -97,7 +97,7 @@ const STARTUP_SETTINGS = {
   autoFitCount: false,
   sizePattern: "random",
   loadAnimation: "dropFade",
-  sceneTone: "normal",
+  sceneTone: "darker",
   widthScale: 2.6,
   heightScale: 1.05,
   depthScale: 1,
@@ -1527,6 +1527,8 @@ function drawMesh(mesh, matrix, texture = artTexture, useTexture = false, alpha 
     ? 0.07
     : state.sceneTone === "darker"
       ? -0.07
+      : state.sceneTone === "dark"
+        ? -0.28
       : 0;
   gl.uniform1f(uTone, tone);
   gl.uniform1f(uAlpha, clamp(alpha, 0, 1));
@@ -2220,7 +2222,11 @@ function render(now) {
     book.hoverMix += (target - book.hoverMix) * easing;
   });
 
-  gl.clearColor(0.945, 0.902, 0.824, 1);
+  if (state.sceneTone === "dark") {
+    gl.clearColor(0.06, 0.07, 0.09, 1);
+  } else {
+    gl.clearColor(0.945, 0.902, 0.824, 1);
+  }
   gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
   gl.useProgram(program);
 
