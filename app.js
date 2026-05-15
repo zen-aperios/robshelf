@@ -228,6 +228,7 @@ function normalizeCmsBookEntry(entry) {
   const clickSoundUrl = entry.clickSoundUrl ?? entry.bookClickSound ?? entry.clickSound ?? "";
   const linkUrl = entry.linkUrl ?? entry.href ?? entry.url ?? entry.link ?? "";
   const linkKey = entry.linkKey ?? entry.bookLink ?? entry.slug ?? "";
+  const linkElement = entry.linkElement ?? null;
   if (!coverUrl && !backUrl && !spineUrl) {
     return null;
   }
@@ -240,6 +241,7 @@ function normalizeCmsBookEntry(entry) {
     clickSoundUrl,
     linkUrl,
     linkKey,
+    linkElement,
   };
 }
 
@@ -275,6 +277,7 @@ function getWebflowCmsBooks() {
       clickSoundUrl,
       linkUrl: linkElement?.href || "",
       linkKey: item.getAttribute("data-book-link") || linkElement?.getAttribute("data-book-link") || "",
+      linkElement,
     });
   }).filter(Boolean);
 }
@@ -2874,12 +2877,18 @@ function getBookLinkUrl(bookIndex) {
   return books?.[bookIndex]?.artSource?.linkUrl || "";
 }
 
+function getBookLinkElement(bookIndex) {
+  return books?.[bookIndex]?.artSource?.linkElement || null;
+}
+
 function navigateToBookLink(bookIndex, event) {
   const linkUrl = getBookLinkUrl(bookIndex);
+  const linkElement = getBookLinkElement(bookIndex);
   const hasCustomHandler = typeof window.onBookClick === "function";
   console.log("Bookshelf click", {
     bookIndex,
     linkUrl,
+    linkElement,
     hasCustomHandler,
     book: books?.[bookIndex],
   });
@@ -2904,6 +2913,12 @@ function navigateToBookLink(bookIndex, event) {
 
   if (!allowDefaultNavigation) {
     console.log("Bookshelf navigation skipped by custom handler", { bookIndex, linkUrl });
+    return;
+  }
+
+  if (linkElement && typeof linkElement.click === "function") {
+    console.log("Bookshelf triggering native anchor click", linkElement.href || linkUrl);
+    linkElement.click();
     return;
   }
 
