@@ -1981,17 +1981,71 @@ requestAnimationFrame(render);
 
 // Watch for dynamic CMS item changes
 let lastCmsBookCount = 0;
+let lastCmsSignature = "";
+
+function buildCmsSignature(cmsBooks) {
+  return cmsBooks
+    .map((book) => `${book.coverUrl || ""}|${book.backUrl || ""}|${book.spineUrl || ""}`)
+    .join("::");
+}
+
+function applyCmsBooksToExistingShelf(cmsBooks) {
+  if (!Array.isArray(cmsBooks) || cmsBooks.length === 0 || books.length === 0) {
+    return;
+  }
+
+  const shuffledCmsLibrary = shuffleArray(cmsBooks);
+  state.cmsBooks = shuffledCmsLibrary;
+  state.cmsBookCursor = 0;
+  const buildSerial = state.artBuildSerial + 1;
+  state.artBuildSerial = buildSerial;
+
+  books.forEach((book, index) => {
+    const cmsArt = shuffledCmsLibrary[index % shuffledCmsLibrary.length];
+    const hasCmsFace = Boolean(cmsArt?.coverUrl);
+    const hasCmsBack = Boolean(cmsArt?.backUrl);
+    const hasCmsSpine = Boolean(cmsArt?.spineUrl);
+
+    // Keep geometry/position stable, only swap art sources and texture-enabled mesh flags.
+    book.artSource = cmsArt;
+    book.artBuildSerial = buildSerial;
+    book.hasArt = Boolean(hasCmsFace || hasCmsBack || hasCmsSpine);
+    if (book.artTexture === artTexture) {
+      book.artTexture = createBookArtTexture();
+    }
+    book.mesh = createBookMesh(book.palette, {
+      faceBitmap: hasCmsFace,
+      backBitmap: hasCmsBack,
+      spineBitmap: hasCmsSpine,
+    });
+
+    buildBookArtTexture(book, cmsArt, buildSerial).catch((error) => {
+      if (state.artBuildSerial === buildSerial) {
+        console.warn("Failed to load CMS book art.", error);
+      }
+    });
+  });
+
+  updateArtStatus();
+}
 
 function checkForCmsUpdates() {
   const currentCmsBooks = getWebflowCmsBooks();
   const currentCount = currentCmsBooks.length;
+  const currentSignature = buildCmsSignature(currentCmsBooks);
   
-  // If the number of CMS items changed, rebuild books
-  if (currentCount !== lastCmsBookCount) {
+  // If the number of CMS items changed, avoid full rebuild when we can keep geometry stable.
+  if (currentCount !== lastCmsBookCount || (currentCount > 0 && currentSignature !== lastCmsSignature)) {
     lastCmsBookCount = currentCount;
+    lastCmsSignature = currentSignature;
     if (currentCount > 0) {
-      state.needsBookRefresh = true;
-      console.log(`Bookshelf: Detected ${currentCount} CMS items. Rebuilding...`);
+      if (books.length > 0 && !state.needsBookRefresh) {
+        applyCmsBooksToExistingShelf(currentCmsBooks);
+        console.log(`Bookshelf: Applied ${currentCount} CMS items without rebuilding layout.`);
+      } else {
+        state.needsBookRefresh = true;
+        console.log(`Bookshelf: Detected ${currentCount} CMS items. Rebuilding...`);
+      }
     }
   }
 }
