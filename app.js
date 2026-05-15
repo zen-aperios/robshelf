@@ -1434,6 +1434,16 @@ function buildBooks() {
   const initialPositions = getResolvedBookPositions(0);
   books.forEach((book, index) => {
     book.positionX = initialPositions[index];
+    book.drawX = initialPositions[index];
+  });
+  const { cycle } = getWrapConfig();
+  let settledPositions = initialPositions.slice();
+  for (let pass = 0; pass < 5; pass += 1) {
+    settledPositions = resolveLiveNeighborPositions(settledPositions, pass * 0.016, cycle);
+  }
+  books.forEach((book, index) => {
+    book.positionX = settledPositions[index];
+    book.drawX = settledPositions[index];
   });
   if (!useCmsArt) {
     stepLoader();
@@ -1818,6 +1828,40 @@ function resolveLiveNeighborPositions(basePositions, timeSeconds, cycle) {
   return resolved;
 }
 
+function getLiveNeighborIndices(index, positions, cycle) {
+  let leftIndex = -1;
+  let rightIndex = -1;
+  let leftDistance = Infinity;
+  let rightDistance = Infinity;
+  const origin = positions[index];
+
+  for (let i = 0; i < positions.length; i += 1) {
+    if (i === index) {
+      continue;
+    }
+    const delta = wrapCentered(positions[i] - origin, cycle);
+    if (delta < 0) {
+      const abs = Math.abs(delta);
+      if (abs < leftDistance) {
+        leftDistance = abs;
+        leftIndex = i;
+      }
+    } else if (delta > 0 && delta < rightDistance) {
+      rightDistance = delta;
+      rightIndex = i;
+    }
+  }
+
+  if (leftIndex < 0) {
+    leftIndex = (index - 1 + positions.length) % positions.length;
+  }
+  if (rightIndex < 0) {
+    rightIndex = (index + 1) % positions.length;
+  }
+
+  return { leftIndex, rightIndex };
+}
+
 function moveTowardsWrapped(current, target, cycle, easing) {
   const delta = wrapCentered(target - current, cycle);
   return wrapCentered(current + delta * easing, cycle);
@@ -2036,8 +2080,7 @@ function createMatrixForBook(book, index, x, timeSeconds, projection, resolvedPo
     book.height * 0.78,
   ) * (1 - hoverMix);
   const xTilt = getBookXTilt(index, book, timeSeconds, hoverMix, true);
-  const leftIndex = (index - 1 + books.length) % books.length;
-  const rightIndex = (index + 1) % books.length;
+  const { leftIndex, rightIndex } = getLiveNeighborIndices(index, resolvedPositions, cycle);
   const selfHalf = getBookHalfSpan(book, hoverMix, desiredLean, xTilt, faceTurn);
   const leftBook = books[leftIndex];
   const rightBook = books[rightIndex];
