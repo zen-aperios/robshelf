@@ -181,6 +181,8 @@ function normalizeCmsBookEntry(entry) {
   const coverUrl = entry.coverUrl ?? entry.cover ?? entry.faceUrl ?? entry.face ?? entry.coverImage ?? entry.front ?? "";
   const backUrl = entry.backUrl ?? entry.back ?? entry.rearUrl ?? entry.rear ?? entry.backImage ?? entry.backFace ?? "";
   const spineUrl = entry.spineUrl ?? entry.spine ?? entry.binderUrl ?? entry.binder ?? entry.side ?? entry.spineImage ?? "";
+  const hoverSoundUrl = entry.hoverSoundUrl ?? entry.bookHoverSound ?? entry.hoverSound ?? "";
+  const clickSoundUrl = entry.clickSoundUrl ?? entry.bookClickSound ?? entry.clickSound ?? "";
   if (!coverUrl && !backUrl && !spineUrl) {
     return null;
   }
@@ -189,6 +191,8 @@ function normalizeCmsBookEntry(entry) {
     coverUrl,
     backUrl: backUrl || coverUrl,
     spineUrl: spineUrl || coverUrl,
+    hoverSoundUrl,
+    clickSoundUrl,
   };
 }
 
@@ -206,10 +210,14 @@ function getWebflowCmsBooks() {
     const coverUrl = coverImage?.currentSrc || coverImage?.src || "";
     const backUrl = backImage?.currentSrc || backImage?.src || "";
     const spineUrl = spineImage?.currentSrc || spineImage?.src || "";
+    const hoverSoundUrl = item.getAttribute("data-book-hover-sound") || "";
+    const clickSoundUrl = item.getAttribute("data-book-click-sound") || "";
     return normalizeCmsBookEntry({
       coverUrl,
       backUrl,
       spineUrl,
+      hoverSoundUrl,
+      clickSoundUrl,
     });
   }).filter(Boolean);
 }
@@ -2435,6 +2443,8 @@ let pageAudioBuffer = null;
 let pageAudioLoading = false;
 let clickAudioBuffer = null;
 let clickAudioLoading = false;
+const remoteAudioBufferCache = new Map();
+const remoteAudioLoadingCache = new Map();
 
 function getAudioContext() {
   if (!audioContext) {
@@ -2481,12 +2491,78 @@ async function loadClickAudio() {
   return clickAudioBuffer;
 }
 
+async function loadAudioBufferFromUrl(url) {
+  if (!url) {
+    return null;
+  }
+  if (remoteAudioBufferCache.has(url)) {
+    return remoteAudioBufferCache.get(url);
+  }
+  if (remoteAudioLoadingCache.has(url)) {
+    return remoteAudioLoadingCache.get(url);
+  }
+
+  const loading = (async () => {
+    try {
+      const response = await fetch(url, { mode: "cors" });
+      if (!response.ok) {
+        throw new Error(`Failed to load audio: ${url}`);
+      }
+      const arrayBuffer = await response.arrayBuffer();
+      const ctx = getAudioContext();
+      const buffer = await ctx.decodeAudioData(arrayBuffer);
+      remoteAudioBufferCache.set(url, buffer);
+      return buffer;
+    } catch (error) {
+      console.warn("Failed to load remote audio:", error);
+      return null;
+    } finally {
+      remoteAudioLoadingCache.delete(url);
+    }
+  })();
+
+  remoteAudioLoadingCache.set(url, loading);
+  return loading;
+}
+
 // Load page audio on startup
 loadPageAudio();
 loadClickAudio();
 
+function playAudioBufferForBook(buffer, bookIndex, volume) {
+  if (!buffer) {
+    return;
+  }
+  try {
+    const ctx = getAudioContext();
+    if (ctx.state === "suspended") {
+      ctx.resume();
+    }
+
+    const source = ctx.createBufferSource();
+    source.buffer = buffer;
+
+    const books = state.books || [];
+    const book = books[bookIndex];
+    let position = 0.5;
+    if (book && book.drawX !== undefined) {
+      position = (book.drawX + 8) / 16;
+      position = Math.max(0, Math.min(1, position));
+    }
+    source.playbackRate.value = 0.7 + position * 0.6;
+
+    const gain = ctx.createGain();
+    gain.gain.setValueAtTime(volume, ctx.currentTime);
+    source.connect(gain);
+    gain.connect(ctx.destination);
+    source.start(ctx.currentTime);
+  } catch (error) {
+    console.warn("Failed to play audio:", error);
+  }
+}
+
 function playHoverSound(bookIndex) {
-  if (!state.soundsEnabled || !pageAudioBuffer) return;
+  if (!state.soundsEnabled) return;
   
   // Prevent rapid re-triggering on the same book (200ms cooldown)
   const now = Date.now();
@@ -2496,76 +2572,40 @@ function playHoverSound(bookIndex) {
   state.lastHoverSoundIndex = bookIndex;
   state.lastHoverSoundTime = now;
   
-  try {
-    const ctx = getAudioContext();
-    if (ctx.state === "suspended") {
-      ctx.resume();
-    }
-    
-    // Create a source from the cached audio buffer
-    const source = ctx.createBufferSource();
-    source.buffer = pageAudioBuffer;
-    
-    // Apply pitch variation based on visible left-to-right position
-    const books = state.books || [];
-    const book = books[bookIndex];
-    let position = 0.5; // default to center
-    if (book && book.drawX !== undefined) {
-      // Map drawX from visible range (~-8 to +8) to pitch range (0 to 1)
-      position = (book.drawX + 8) / 16;
-      position = Math.max(0, Math.min(1, position)); // Clamp to 0-1
-    }
-    const pitchShift = 0.7 + position * 0.6; // Left (0.7) to right (1.3)
-    source.playbackRate.value = pitchShift;
-    
-    // Create gain node for volume control
-    const gain = ctx.createGain();
-    gain.gain.setValueAtTime(state.hoverSoundVolume, ctx.currentTime);
-    
-    // Connect and play
-    source.connect(gain);
-    gain.connect(ctx.destination);
-    source.start(ctx.currentTime);
-  } catch (error) {
-    console.warn("Failed to play hover sound:", error);
+  const book = books?.[bookIndex];
+  const customUrl = book?.artSource?.hoverSoundUrl;
+  if (customUrl) {
+    loadAudioBufferFromUrl(customUrl).then((buffer) => {
+      if (buffer) {
+        playAudioBufferForBook(buffer, bookIndex, state.hoverSoundVolume);
+      } else if (pageAudioBuffer) {
+        playAudioBufferForBook(pageAudioBuffer, bookIndex, state.hoverSoundVolume);
+      }
+    });
+    return;
+  }
+  if (pageAudioBuffer) {
+    playAudioBufferForBook(pageAudioBuffer, bookIndex, state.hoverSoundVolume);
   }
 }
 
 function playClickSound(bookIndex) {
-  if (!state.soundsEnabled || !clickAudioBuffer) return;
-  
-  try {
-    const ctx = getAudioContext();
-    if (ctx.state === "suspended") {
-      ctx.resume();
-    }
-    
-    // Create a source from the cached click audio buffer
-    const source = ctx.createBufferSource();
-    source.buffer = clickAudioBuffer;
-    
-    // Apply pitch variation based on visible left-to-right position
-    const books = state.books || [];
-    const book = books[bookIndex];
-    let position = 0.5; // default to center
-    if (book && book.drawX !== undefined) {
-      // Map drawX from visible range (~-8 to +8) to pitch range (0 to 1)
-      position = (book.drawX + 8) / 16;
-      position = Math.max(0, Math.min(1, position)); // Clamp to 0-1
-    }
-    const pitchShift = 0.7 + position * 0.6; // Left (0.7) to right (1.3)
-    source.playbackRate.value = pitchShift;
-    
-    // Create gain node for volume control
-    const gain = ctx.createGain();
-    gain.gain.setValueAtTime(state.clickSoundVolume, ctx.currentTime);
-    
-    // Connect and play
-    source.connect(gain);
-    gain.connect(ctx.destination);
-    source.start(ctx.currentTime);
-  } catch (error) {
-    console.warn("Failed to play click sound:", error);
+  if (!state.soundsEnabled) return;
+
+  const book = books?.[bookIndex];
+  const customUrl = book?.artSource?.clickSoundUrl;
+  if (customUrl) {
+    loadAudioBufferFromUrl(customUrl).then((buffer) => {
+      if (buffer) {
+        playAudioBufferForBook(buffer, bookIndex, state.clickSoundVolume);
+      } else if (clickAudioBuffer) {
+        playAudioBufferForBook(clickAudioBuffer, bookIndex, state.clickSoundVolume);
+      }
+    });
+    return;
+  }
+  if (clickAudioBuffer) {
+    playAudioBufferForBook(clickAudioBuffer, bookIndex, state.clickSoundVolume);
   }
 }
 
