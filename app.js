@@ -110,6 +110,8 @@ const STARTUP_SETTINGS = {
   staticLean: true,
   rotationPattern: "sine",
   hoverFocus: true,
+  depthOfField: false,
+  focusFade: false,
   hoverResetRotation: true,
   hoverDomino: false,
   useImported: false,
@@ -117,7 +119,7 @@ const STARTUP_SETTINGS = {
   sizePattern: "uniform",
   loadAnimation: "dropFade",
   sceneTone: "darker",
-  widthScale: 2.75,
+  widthScale: 2.9,
   heightScale: 0.96,
   depthScale: 1.43,
   edgeRoundness: STARTUP_EDGE_ROUNDNESS,
@@ -167,6 +169,8 @@ function applyStartupControls(settings) {
     ["patternRotate", "checked", settings.patternRotate],
     ["staticLean", "checked", settings.staticLean],
     ["hoverFocus", "checked", settings.hoverFocus],
+    ["depthOfField", "checked", settings.depthOfField],
+    ["focusFade", "checked", settings.focusFade],
     ["hoverResetRotation", "checked", settings.hoverResetRotation],
     ["hoverDomino", "checked", settings.hoverDomino],
     ["useImported", "checked", settings.useImported],
@@ -376,6 +380,8 @@ const controls = {
   staticLean: document.getElementById("staticLean"),
   rotationPattern: document.getElementById("rotationPattern"),
   hoverFocus: document.getElementById("hoverFocus"),
+  depthOfField: document.getElementById("depthOfField"),
+  focusFade: document.getElementById("focusFade"),
   hoverResetRotation: document.getElementById("hoverResetRotation"),
   hoverDomino: document.getElementById("hoverDomino"),
   useImported: document.getElementById("useImported"),
@@ -459,6 +465,8 @@ const state = {
   staticLean: Boolean(STARTUP_SETTINGS.staticLean),
   rotationPattern: STARTUP_SETTINGS.rotationPattern,
   hoverFocus: Boolean(STARTUP_SETTINGS.hoverFocus),
+  depthOfField: Boolean(STARTUP_SETTINGS.depthOfField),
+  focusFade: Boolean(STARTUP_SETTINGS.focusFade),
   hoverResetRotation: Boolean(STARTUP_SETTINGS.hoverResetRotation),
   hoverDomino: Boolean(STARTUP_SETTINGS.hoverDomino),
   useImported: Boolean(STARTUP_SETTINGS.useImported),
@@ -649,10 +657,37 @@ uniform sampler2D uTexture;
 uniform float uUseTexture;
 uniform float uTone;
 uniform float uAlpha;
+uniform float uBlurAmount;
+uniform float uFadeAmount;
 void main() {
   vec4 texel = texture2D(uTexture, vTexCoord);
+  vec2 blurStep = vec2(0.016 * uBlurAmount, 0.016 * uBlurAmount);
+  vec4 blurX1 = texture2D(uTexture, vTexCoord + vec2(blurStep.x, 0.0));
+  vec4 blurX2 = texture2D(uTexture, vTexCoord - vec2(blurStep.x, 0.0));
+  vec4 blurY1 = texture2D(uTexture, vTexCoord + vec2(0.0, blurStep.y));
+  vec4 blurY2 = texture2D(uTexture, vTexCoord - vec2(0.0, blurStep.y));
+  vec4 blurDiag1 = texture2D(uTexture, vTexCoord + blurStep);
+  vec4 blurDiag2 = texture2D(uTexture, vTexCoord - blurStep);
+  vec4 blurFarX1 = texture2D(uTexture, vTexCoord + vec2(blurStep.x * 2.0, 0.0));
+  vec4 blurFarX2 = texture2D(uTexture, vTexCoord - vec2(blurStep.x * 2.0, 0.0));
+  vec4 blurFarY1 = texture2D(uTexture, vTexCoord + vec2(0.0, blurStep.y * 2.0));
+  vec4 blurFarY2 = texture2D(uTexture, vTexCoord - vec2(0.0, blurStep.y * 2.0));
+  vec4 blurredTexel = (
+    texel * 1.5
+    + blurX1 + blurX2 + blurY1 + blurY2
+    + blurDiag1 + blurDiag2
+    + blurFarX1 + blurFarX2 + blurFarY1 + blurFarY2
+  ) / 11.5;
   float textureMix = uUseTexture * texel.a;
-  vec3 color = mix(vColor, vColor * texel.rgb, textureMix);
+  float blurredTextureMix = uUseTexture * blurredTexel.a;
+  vec3 baseColor = mix(vColor, vColor * texel.rgb, textureMix);
+  vec3 blurredColor = mix(vColor, vColor * blurredTexel.rgb, blurredTextureMix);
+  vec3 color = mix(baseColor, blurredColor, clamp(uBlurAmount, 0.0, 1.0));
+  color *= (1.0 - (0.08 * clamp(uBlurAmount, 0.0, 1.0)));
+  float luminance = dot(color, vec3(0.299, 0.587, 0.114));
+  vec3 grayscale = vec3(luminance);
+  vec3 fadedColor = mix(color, grayscale, 0.58 * clamp(uFadeAmount, 0.0, 1.0));
+  color = mix(color, fadedColor * (1.0 - (0.24 * clamp(uFadeAmount, 0.0, 1.0))), clamp(uFadeAmount, 0.0, 1.0));
   color = clamp(color + vec3(uTone), 0.0, 1.0);
   gl_FragColor = vec4(color, uAlpha);
 }
@@ -1545,6 +1580,8 @@ const uTexture = gl.getUniformLocation(program, "uTexture");
 const uUseTexture = gl.getUniformLocation(program, "uUseTexture");
 const uTone = gl.getUniformLocation(program, "uTone");
 const uAlpha = gl.getUniformLocation(program, "uAlpha");
+const uBlurAmount = gl.getUniformLocation(program, "uBlurAmount");
+const uFadeAmount = gl.getUniformLocation(program, "uFadeAmount");
 
 gl.enable(gl.DEPTH_TEST);
 gl.disable(gl.CULL_FACE);
@@ -1589,7 +1626,7 @@ function bindMesh(mesh) {
   gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, mesh.indices, gl.STATIC_DRAW);
 }
 
-function drawMesh(mesh, matrix, texture = artTexture, useTexture = false, alpha = 1) {
+function drawMesh(mesh, matrix, texture = artTexture, useTexture = false, alpha = 1, blurAmount = 0, fadeAmount = 0) {
   bindMesh(mesh);
   gl.uniformMatrix4fv(uMatrix, false, new Float32Array(matrix));
   gl.activeTexture(gl.TEXTURE0);
@@ -1601,11 +1638,46 @@ function drawMesh(mesh, matrix, texture = artTexture, useTexture = false, alpha 
     : state.sceneTone === "darker"
       ? -0.07
       : state.sceneTone === "dark"
-        ? -0.28
+      ? -0.28
       : 0;
   gl.uniform1f(uTone, tone);
   gl.uniform1f(uAlpha, clamp(alpha, 0, 1));
+  gl.uniform1f(uBlurAmount, clamp(blurAmount, 0, 1));
+  gl.uniform1f(uFadeAmount, clamp(fadeAmount, 0, 1));
   gl.drawElements(gl.TRIANGLES, mesh.indices.length, gl.UNSIGNED_SHORT, 0);
+}
+
+function getFocusDistanceAmount(index, drawPositions) {
+  if (books.length <= 1) {
+    return 0;
+  }
+  const focusIndex = state.hoveredIndex >= 0
+    ? state.hoveredIndex
+    : Math.floor((books.length - 1) / 2);
+  const focusX = drawPositions[focusIndex] ?? 0;
+  const currentX = drawPositions[index] ?? 0;
+  const cycle = Math.max(getWrapConfig().cycle, 0.001);
+  const visibleShelfWidth = Math.max(getVisibleShelfWidth(), 0.001);
+  const normalizedDistance = Math.abs(wrapCentered(currentX - focusX, cycle)) / Math.max(visibleShelfWidth * 0.34, 0.001);
+  const focusMix = books[focusIndex]?.hoverMix ?? 0;
+  const softenedDistance = Math.max(0, normalizedDistance - (0.02 + focusMix * 0.14));
+  return clamp(softenedDistance, 0, 1);
+}
+
+function getDepthOfFieldBlur(index, drawPositions) {
+  if (!state.depthOfField) {
+    return 0;
+  }
+  const focusDistance = getFocusDistanceAmount(index, drawPositions);
+  return clamp((focusDistance ** 0.72) * 1.45, 0, 1);
+}
+
+function getFocusFadeAmount(index, drawPositions) {
+  if (!state.focusFade) {
+    return 0;
+  }
+  const focusDistance = getFocusDistanceAmount(index, drawPositions);
+  return clamp((focusDistance ** 0.72) * 1.15, 0, 1);
 }
 
 function updateArtStatus() {
@@ -2354,12 +2426,16 @@ function render(now) {
       cycle,
       loadAnim.y,
     );
+    const blurAmount = getDepthOfFieldBlur(index, drawResolvedPositions);
+    const fadeAmount = getFocusFadeAmount(index, drawResolvedPositions);
     drawMesh(
       useImported ? state.importedMesh : book.mesh,
       matrix,
       useImported ? artTexture : book.artTexture,
       !useImported && !!book.hasArt,
       loadAnim.alpha,
+      blurAmount,
+      fadeAmount,
     );
   });
 
@@ -2589,6 +2665,8 @@ function updateFromInputs(event) {
   state.staticLean = controls.staticLean.checked;
   state.rotationPattern = controls.rotationPattern.value;
   state.hoverFocus = controls.hoverFocus.checked;
+  state.depthOfField = controls.depthOfField.checked;
+  state.focusFade = controls.focusFade.checked;
   state.hoverResetRotation = controls.hoverResetRotation.checked;
   state.hoverDomino = controls.hoverDomino.checked;
   state.useImported = controls.useImported.checked;
@@ -2678,6 +2756,8 @@ function updateFromInputs(event) {
   controls.staticLean,
   controls.rotationPattern,
   controls.hoverFocus,
+  controls.depthOfField,
+  controls.focusFade,
   controls.hoverResetRotation,
   controls.hoverDomino,
   controls.useImported,
