@@ -525,6 +525,9 @@ const state = {
   cmsBooks: [],
   cmsBookCursor: 0,
   soundsEnabled: true,
+  audioUnlocked: false,
+  hoverSoundUnlockGraceUntilMs: 0,
+  hoverSoundRequestSerial: 0,
   hoverSoundVolume: 0.3,
   clickSoundVolume: 0.5,
   renderTimeSeconds: 0,
@@ -2924,6 +2927,8 @@ function playAudioBufferForBook(buffer, bookIndex, volume) {
 
 function playHoverSound(bookIndex) {
   if (!state.soundsEnabled) return;
+  if (!state.audioUnlocked) return;
+  if (performance.now() < state.hoverSoundUnlockGraceUntilMs) return;
 
   // Skip hover sound during rapid sweep movement across many books.
   if (state.hoverPointerVelocity > HOVER_SOUND_VELOCITY_GATE_PX_PER_MS) {
@@ -2940,11 +2945,15 @@ function playHoverSound(bookIndex) {
   }
   state.lastHoverSoundIndex = bookIndex;
   state.lastHoverSoundTime = now;
+  const requestSerial = ++state.hoverSoundRequestSerial;
   
   const book = books?.[bookIndex];
   const customUrl = book?.artSource?.hoverSoundUrl;
   if (customUrl) {
     loadAudioBufferFromUrl(customUrl).then((buffer) => {
+      if (requestSerial !== state.hoverSoundRequestSerial) {
+        return;
+      }
       if (buffer) {
         playAudioBufferForBook(buffer, bookIndex, state.hoverSoundVolume);
       } else if (pageAudioBuffer) {
@@ -2960,6 +2969,7 @@ function playHoverSound(bookIndex) {
 
 function playClickSound(bookIndex) {
   if (!state.soundsEnabled) return;
+  state.audioUnlocked = true;
 
   const book = books?.[bookIndex];
   const customUrl = book?.artSource?.clickSoundUrl;
@@ -3051,6 +3061,10 @@ function updateCanvasCursor() {
 }
 
 canvas.addEventListener("pointerdown", (event) => {
+  state.audioUnlocked = true;
+  state.hoverSoundUnlockGraceUntilMs = performance.now() + 300;
+  // Drop any stale hover requests that may resolve after unlock.
+  state.hoverSoundRequestSerial += 1;
   state.pointerDown = true;
   state.lastPointerX = event.clientX;
   state.lastPointerY = event.clientY;
