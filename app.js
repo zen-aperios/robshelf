@@ -508,6 +508,10 @@ const state = {
   clickedIndex: -1,
   lastHoverSoundIndex: -1,
   lastHoverSoundTime: 0,
+  hoverPointerVelocity: 0,
+  hoverPointerLastX: null,
+  hoverPointerLastY: null,
+  hoverPointerLastTime: 0,
   needsBookRefresh: true,
   artBuildSerial: 0,
   importedMesh: null,
@@ -531,6 +535,9 @@ const state = {
   loadProgressDone: 0,
   loadStartedAtMs: 0,
 };
+
+const HOVER_SOUND_VELOCITY_GATE_PX_PER_MS = 1.1;
+const HOVER_SOUND_GLOBAL_COOLDOWN_MS = 90;
 
 function setLoaderProgress(progress) {
   const animation = ensureLoaderAnimation();
@@ -2917,9 +2924,17 @@ function playAudioBufferForBook(buffer, bookIndex, volume) {
 
 function playHoverSound(bookIndex) {
   if (!state.soundsEnabled) return;
-  
+
+  // Skip hover sound during rapid sweep movement across many books.
+  if (state.hoverPointerVelocity > HOVER_SOUND_VELOCITY_GATE_PX_PER_MS) {
+    return;
+  }
+
   // Prevent rapid re-triggering on the same book (200ms cooldown)
   const now = Date.now();
+  if ((now - state.lastHoverSoundTime) < HOVER_SOUND_GLOBAL_COOLDOWN_MS) {
+    return;
+  }
   if (bookIndex === state.lastHoverSoundIndex && (now - state.lastHoverSoundTime) < 200) {
     return;
   }
@@ -3063,6 +3078,20 @@ canvas.addEventListener("pointerup", (event) => {
 
 canvas.addEventListener("pointermove", (event) => {
   if (!state.pointerDown) {
+    const sampleTime = event.timeStamp || performance.now();
+    if (state.hoverPointerLastTime > 0 && state.hoverPointerLastX !== null && state.hoverPointerLastY !== null) {
+      const dt = sampleTime - state.hoverPointerLastTime;
+      if (dt > 0) {
+        const dx = event.clientX - state.hoverPointerLastX;
+        const dy = event.clientY - state.hoverPointerLastY;
+        const instantVelocity = Math.hypot(dx, dy) / dt;
+        state.hoverPointerVelocity = state.hoverPointerVelocity * 0.35 + instantVelocity * 0.65;
+      }
+    }
+    state.hoverPointerLastX = event.clientX;
+    state.hoverPointerLastY = event.clientY;
+    state.hoverPointerLastTime = sampleTime;
+
     const previousHovered = state.hoveredIndex;
     updateHoveredBook(event.clientX, event.clientY);
     
@@ -3098,6 +3127,10 @@ canvas.addEventListener("pointerleave", () => {
     return;
   }
   state.hoveredIndex = -1;
+  state.hoverPointerVelocity = 0;
+  state.hoverPointerLastX = null;
+  state.hoverPointerLastY = null;
+  state.hoverPointerLastTime = 0;
   updateCanvasCursor();
 });
 
