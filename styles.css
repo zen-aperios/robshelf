@@ -374,6 +374,7 @@ button:hover {
   backdrop-filter: blur(14px);
 }
 
+
 @media (max-width: 720px) {
   .panel {
     left: 16px;
