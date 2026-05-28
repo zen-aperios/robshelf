@@ -114,6 +114,7 @@ const STARTUP_SETTINGS = {
   focusFade: false,
   hoverResetRotation: true,
   hoverDomino: false,
+  hoverZeroLean: true,
   useImported: false,
   autoFitCount: false,
   sizePattern: "uniform",
@@ -121,7 +122,7 @@ const STARTUP_SETTINGS = {
   sceneTone: "darker",
   widthScale: 3.2,
   heightScale: 0.96,
-  depthScale: 1.43,
+  depthScale: 1.5,
   edgeRoundness: STARTUP_EDGE_ROUNDNESS,
   matteAmount: 0,
   staticLeanAmount: 0.18,
@@ -173,6 +174,7 @@ function applyStartupControls(settings) {
     ["focusFade", "checked", settings.focusFade],
     ["hoverResetRotation", "checked", settings.hoverResetRotation],
     ["hoverDomino", "checked", settings.hoverDomino],
+    ["hoverZeroLean", "checked", settings.hoverZeroLean],
     ["useImported", "checked", settings.useImported],
     ["autoFitCount", "checked", settings.autoFitCount],
     ["rotationPattern", "value", settings.rotationPattern],
@@ -386,6 +388,7 @@ const controls = {
   focusFade: document.getElementById("focusFade"),
   hoverResetRotation: document.getElementById("hoverResetRotation"),
   hoverDomino: document.getElementById("hoverDomino"),
+  hoverZeroLean: document.getElementById("hoverZeroLean"),
   useImported: document.getElementById("useImported"),
   autoFitCount: document.getElementById("autoFitCount"),
   sizePattern: document.getElementById("sizePattern"),
@@ -471,6 +474,7 @@ const state = {
   focusFade: Boolean(STARTUP_SETTINGS.focusFade),
   hoverResetRotation: Boolean(STARTUP_SETTINGS.hoverResetRotation),
   hoverDomino: Boolean(STARTUP_SETTINGS.hoverDomino),
+  hoverZeroLean: Boolean(STARTUP_SETTINGS.hoverZeroLean),
   useImported: Boolean(STARTUP_SETTINGS.useImported),
   autoFitCount: Boolean(STARTUP_SETTINGS.autoFitCount),
   sizePattern: STARTUP_SETTINGS.sizePattern,
@@ -532,6 +536,7 @@ const state = {
   hoverSoundRequestSerial: 0,
   hoverSoundVolume: 0.3,
   clickSoundVolume: 0.5,
+  hoverLeanMixSmoothed: 0,
   renderTimeSeconds: 0,
   loadAnimationStartTime: 0,
   loadAnimationArmed: true,
@@ -980,6 +985,29 @@ function getHoverDominoPitch(index) {
   const direction = index < state.hoveredIndex ? -1 : 1;
   const targetAngle = 1.08;
   return direction * targetAngle * falloff * easedMix;
+}
+
+function getTargetGlobalHoverLeanMix() {
+  if (!state.hoverZeroLean || books.length === 0) {
+    return 0;
+  }
+
+  let maxHoverMix = 0;
+  books.forEach((book) => {
+    if (book.hoverMix > maxHoverMix) {
+      maxHoverMix = book.hoverMix;
+    }
+  });
+
+  return clamp(maxHoverMix, 0, 1);
+}
+
+function getGlobalHoverLeanMix() {
+  return clamp(state.hoverLeanMixSmoothed, 0, 1);
+}
+
+function getHoverLeanSuppression() {
+  return 1 - getGlobalHoverLeanMix();
 }
 
 function appendFace(positions, colors, texCoords, indices, points, color, uvRect) {
@@ -1757,14 +1785,15 @@ function getStaticPitchForBook(book) {
   if (!state.staticLean || book.staticPitchBias === 0) {
     return 0;
   }
-  return clamp(book.staticPitchBias * state.staticLeanAmount * 0.95, -0.95, 0.95);
+  return clamp(book.staticPitchBias * state.staticLeanAmount * 0.95, -0.95, 0.95) * getHoverLeanSuppression();
 }
 
 function getBookXTilt(index, book, timeSeconds, hoverMix = book.hoverMix, includeDomino = true) {
   const rotationOverride = getBookRotationOverride(index);
   const hasMotionOffsets = state.depthSwing > 0 || state.leanAngle > 0 || state.waveTilt > 0;
+  const hoverLeanSuppression = getHoverLeanSuppression();
   const animatedXTilt = hasMotionOffsets
-    ? Math.sin(index * 0.4 + timeSeconds + book.seed) * 0.02
+    ? Math.sin(index * 0.4 + timeSeconds + book.seed) * 0.02 * hoverLeanSuppression
     : 0;
   const dominoXTilt = includeDomino ? getHoverDominoPitch(index) : 0;
   const xTiltBase = animatedXTilt + getStaticPitchForBook(book) + dominoXTilt + rotationOverride.x;
@@ -2208,7 +2237,8 @@ function getBookLean(index, book, timeSeconds) {
     )
     : 0;
   const staticLean = getStaticLeanForBook(book);
-  return animatedLean + staticLean;
+  const hoverLeanSuppression = getHoverLeanSuppression();
+  return (animatedLean + staticLean) * hoverLeanSuppression;
 }
 
 function getEffectiveZLean(index, book, timeSeconds, hoverMix = book.hoverMix) {
@@ -2452,6 +2482,12 @@ function render(now) {
     book.hoverMix += (target - book.hoverMix) * easing;
   });
 
+  const targetHoverLeanMix = getTargetGlobalHoverLeanMix();
+  const hoverLeanEasing = targetHoverLeanMix > state.hoverLeanMixSmoothed
+    ? Math.max(0.04, state.hoverSpeed * 0.85)
+    : Math.max(0.018, state.returnSpeed * 0.35);
+  state.hoverLeanMixSmoothed += (targetHoverLeanMix - state.hoverLeanMixSmoothed) * hoverLeanEasing;
+
   if (state.sceneTone === "dark") {
     gl.clearColor(0.06, 0.07, 0.09, 1);
   } else {
@@ -2671,6 +2707,7 @@ function buildWebflowExportPayload() {
       hoverFocus: state.hoverFocus,
       hoverResetRotation: state.hoverResetRotation,
       hoverDomino: state.hoverDomino,
+      hoverZeroLean: state.hoverZeroLean,
       useImported: state.useImported,
       autoFitCount: state.autoFitCount,
       sizePattern: state.sizePattern,
@@ -2751,6 +2788,7 @@ function updateFromInputs(event) {
   state.focusFade = controls.focusFade.checked;
   state.hoverResetRotation = controls.hoverResetRotation.checked;
   state.hoverDomino = controls.hoverDomino.checked;
+  state.hoverZeroLean = controls.hoverZeroLean.checked;
   state.useImported = controls.useImported.checked;
   state.autoFitCount = controls.autoFitCount.checked;
   const nextSizePattern = controls.sizePattern.value;
@@ -2842,6 +2880,7 @@ function updateFromInputs(event) {
   controls.focusFade,
   controls.hoverResetRotation,
   controls.hoverDomino,
+  controls.hoverZeroLean,
   controls.useImported,
   controls.autoFitCount,
   controls.sizePattern,
