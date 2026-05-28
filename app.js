@@ -256,7 +256,6 @@ function getWebflowCmsBooks() {
   }
 
   const collectionScope = document.querySelector("[data-book-hover-sound], [data-book-click-sound]");
-  const collectionHoverSound = collectionScope?.getAttribute("data-book-hover-sound") || "";
   const collectionClickSound = collectionScope?.getAttribute("data-book-click-sound") || "";
   const items = document.querySelectorAll("[data-bookshelf-cms-item]");
   return Array.from(items).map((item) => {
@@ -267,11 +266,14 @@ function getWebflowCmsBooks() {
     const coverUrl = coverImage?.currentSrc || coverImage?.src || "";
     const backUrl = backImage?.currentSrc || backImage?.src || "";
     const spineUrl = spineImage?.currentSrc || spineImage?.src || "";
-    const localHoverSound = item.getAttribute("data-book-hover-sound") || "";
+    const localHoverSound =
+      item.getAttribute("data-book-hover-sound")
+      || linkElement?.getAttribute("data-book-hover-sound")
+      || item.querySelector("[data-book-hover-sound]")?.getAttribute("data-book-hover-sound")
+      || "";
     const localClickSound = item.getAttribute("data-book-click-sound") || "";
-    const inheritedHoverSound = item.closest("[data-book-hover-sound]")?.getAttribute("data-book-hover-sound") || "";
     const inheritedClickSound = item.closest("[data-book-click-sound]")?.getAttribute("data-book-click-sound") || "";
-    const hoverSoundUrl = localHoverSound || inheritedHoverSound || collectionHoverSound;
+    const hoverSoundUrl = localHoverSound;
     const clickSoundUrl = localClickSound || inheritedClickSound || collectionClickSound;
     return normalizeCmsBookEntry({
       coverUrl,
@@ -1953,8 +1955,32 @@ function resolveLiveNeighborPositions(basePositions, timeSeconds, cycle) {
   const resolved = basePositions.slice();
   const collisionGap = 0.04;
   const iterations = 3;
+  const leanPairThreshold = 0.002;
+  const pairKey = (leftIndex, rightIndex) => `${Math.min(leftIndex, rightIndex)}:${Math.max(leftIndex, rightIndex)}`;
+  const baselineOrder = books
+    .map((_, index) => ({
+      index,
+      relativeX: wrapCentered(basePositions[index] - focusBaseX, cycle),
+    }))
+    .sort((left, right) => left.relativeX - right.relativeX)
+    .map((entry) => entry.index);
+  const baselinePairGaps = new Map();
+
+  for (let i = 1; i < baselineOrder.length; i += 1) {
+    const leftIndex = baselineOrder[i - 1];
+    const rightIndex = baselineOrder[i];
+    baselinePairGaps.set(
+      pairKey(leftIndex, rightIndex),
+      Math.abs(wrapCentered(basePositions[rightIndex] - basePositions[leftIndex], cycle)),
+    );
+  }
 
   for (let pass = 0; pass < iterations; pass += 1) {
+    const leanShiftIntents = books.map((book, index) => {
+      const hoverMix = book.hoverMix;
+      const desiredLean = getEffectiveZLean(index, book, timeSeconds, hoverMix);
+      return getLeanCenterShift(book, desiredLean, hoverMix);
+    });
     const halfSpans = books.map((book, index) => getBookDynamicHalfSpan(book, index, timeSeconds));
     const items = books.map((book, index) => ({
       index,
@@ -1985,6 +2011,50 @@ function resolveLiveNeighborPositions(basePositions, timeSeconds, cycle) {
       const targetX = focusBaseX + current.relativeX;
       resolved[current.index] = Math.min(targetX, maximum);
       nextIndex = current.index;
+    }
+
+    // Final propagation pass: preserve baseline spacing for any adjacent pair
+    // where one book is actively leaning into the other.
+    const liveEntries = books
+      .map((_, index) => ({
+        index,
+        relativeX: wrapCentered(resolved[index] - focusBaseX, cycle),
+      }))
+      .sort((left, right) => left.relativeX - right.relativeX);
+    const liveOrder = liveEntries.map((entry) => entry.index);
+    const liveRel = new Map(liveEntries.map((entry) => [entry.index, entry.relativeX]));
+
+    for (let i = 1; i < liveOrder.length; i += 1) {
+      const leftIndex = liveOrder[i - 1];
+      const rightIndex = liveOrder[i];
+      const leftLeansRight = leanShiftIntents[leftIndex] > leanPairThreshold;
+      const rightLeansLeft = leanShiftIntents[rightIndex] < -leanPairThreshold;
+      if (!leftLeansRight && !rightLeansLeft) {
+        continue;
+      }
+
+      const lockedGap = baselinePairGaps.get(pairKey(leftIndex, rightIndex));
+      if (!Number.isFinite(lockedGap)) {
+        continue;
+      }
+
+      const currentGap = Math.abs(wrapCentered(resolved[rightIndex] - resolved[leftIndex], cycle));
+      if (currentGap >= lockedGap) {
+        continue;
+      }
+
+      const correction = lockedGap - currentGap;
+      const leftRel = liveRel.get(leftIndex) ?? 0;
+      const rightRel = liveRel.get(rightIndex) ?? 0;
+
+      if (leftRel >= 0 && rightRel >= 0) {
+        resolved[rightIndex] += correction;
+      } else if (leftRel <= 0 && rightRel <= 0) {
+        resolved[leftIndex] -= correction;
+      } else {
+        resolved[leftIndex] -= correction * 0.5;
+        resolved[rightIndex] += correction * 0.5;
+      }
     }
   }
 
