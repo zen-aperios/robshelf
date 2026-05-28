@@ -2303,6 +2303,7 @@ function getRotationPatternValue(index, timeSeconds, book) {
 function createMatrixForBook(book, index, x, timeSeconds, projection, resolvedPositions, cycle, loadYOffset = 0) {
   const rotationOverride = getBookRotationOverride(index);
   const hoverMix = book.hoverMix;
+  const startupSettling = timeSeconds < state.initialLeanSettleUntil && state.hoveredIndex < 0 && !state.pointerDown;
   const z = state.depthSwing > 0
     ? Math.sin(x * 0.55 + timeSeconds * 0.65 + book.seed) * state.depthSwing
     : 0;
@@ -2313,7 +2314,7 @@ function createMatrixForBook(book, index, x, timeSeconds, projection, resolvedPo
   const baselineY = book.height / 2 - 1.28 + state.shelfVerticalOffset;
   const y = baselineY + bob + hoverMix * 0.02 + loadYOffset;
   const rawDesiredLean = getEffectiveZLean(index, book, timeSeconds, hoverMix);
-  const settleLeanMix = timeSeconds < state.initialLeanSettleUntil
+  const settleLeanMix = startupSettling
     ? clamp(1 - ((state.initialLeanSettleUntil - timeSeconds) / 1.35), 0, 1)
     : 1;
   const desiredLean = rawDesiredLean * settleLeanMix;
@@ -2360,7 +2361,7 @@ function createMatrixForBook(book, index, x, timeSeconds, projection, resolvedPo
   const totalClearance = leftGap + rightGap;
   const clearanceDemand = Math.max(selfHalf * 0.7, 0.001);
   const clearanceFactor = clamp(totalClearance / clearanceDemand, 0, 1);
-  const startupSettleMix = timeSeconds < state.initialLeanSettleUntil
+  const startupSettleMix = startupSettling
     ? clamp((state.initialLeanSettleUntil - timeSeconds) / 0.9, 0, 1)
     : 0;
   const startupClearanceFactor = startupSettleMix > 0
@@ -2476,10 +2477,11 @@ function render(now) {
   const resolvedPositions = getResolvedBookPositions(timeSeconds);
   const { cycle } = getWrapConfig();
   const provisionalDrawPositions = new Array(books.length);
+  const startupSettling = timeSeconds < state.initialLeanSettleUntil && state.hoveredIndex < 0 && !state.pointerDown;
 
   books.forEach((book, index) => {
     const targetX = resolvedPositions[index];
-    if (timeSeconds < state.initialLeanSettleUntil) {
+    if (startupSettling) {
       // During first-load settle, snap to resolved positions to avoid transient overlap crossings.
       book.positionX = targetX;
     } else {
