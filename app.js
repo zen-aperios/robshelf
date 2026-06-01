@@ -2481,7 +2481,9 @@ function render(now) {
     const target = state.hoverFocus && index === state.hoveredIndex ? 1 : 0;
     const easing = target > book.hoverMix ? state.hoverSpeed : state.returnSpeed;
     book.hoverMix += (target - book.hoverMix) * easing;
-    const faceTurnEasing = easing * 0.8;
+    const faceTurnEasing = target > book.faceTurnMix
+      ? state.hoverSpeed * 0.7
+      : state.returnSpeed * 0.8;
     book.faceTurnMix += (target - book.faceTurnMix) * faceTurnEasing;
   });
 
