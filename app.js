@@ -1882,7 +1882,7 @@ function getBookX(index) {
 }
 
 function getBookFaceTurn(hoverMix) {
-  return hoverMix * (Math.PI / 2);
+  return hoverMix * (Math.PI / 2) * 0.8;
 }
 
 function getResolvedBookPositions(timeSeconds) {
