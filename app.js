@@ -1546,6 +1546,7 @@ function buildBooks() {
         ? (Math.random() < 0.5 ? -1 : 1) * randomRange(0.75, 1.1)
         : 0,
       hoverMix: 0,
+      faceTurnMix: 0,
       leanShiftSmoothed: 0,
       positionX: 0,
       palette,
@@ -1800,7 +1801,7 @@ function getBookXTilt(index, book, timeSeconds, hoverMix = book.hoverMix, includ
   return state.hoverResetRotation ? xTiltBase * (1 - hoverMix) : xTiltBase;
 }
 
-function getBookHalfSpan(book, hoverMix, leanAngle = 0, pitchAngle = 0, faceTurn = getBookFaceTurn(hoverMix)) {
+function getBookHalfSpan(book, hoverMix, leanAngle = 0, pitchAngle = 0, faceTurn = getBookFaceTurn(hoverMix, book.faceTurnMix)) {
   const closedSpan = (book.depth / 2) * (1 - hoverMix) + (book.width / 2) * hoverMix;
   const horizontalBase = Math.abs(Math.cos(leanAngle)) * closedSpan;
   const verticalBleed = Math.abs(Math.sin(leanAngle)) * (book.height / 2) * 1.35;
@@ -1881,8 +1882,8 @@ function getBookX(index) {
   return wrapCentered(centers[index] - state.offset, cycle);
 }
 
-function getBookFaceTurn(hoverMix) {
-  return hoverMix * (Math.PI / 2) * 0.8;
+function getBookFaceTurn(hoverMix, faceTurnMix = hoverMix) {
+  return faceTurnMix * (Math.PI / 2);
 }
 
 function getResolvedBookPositions(timeSeconds) {
@@ -1965,7 +1966,7 @@ function getBookDynamicHalfSpan(book, index, timeSeconds) {
   const combinedLean = getBookLean(index, book, timeSeconds);
   const leanAngle = getBookRotationOverride(index).z + (state.hoverResetRotation ? combinedLean * (1 - hoverMix) : combinedLean);
   const pitchAngle = getBookXTilt(index, book, timeSeconds, hoverMix, true);
-  const faceTurn = getBookFaceTurn(hoverMix) - getBookRotationOverride(index).y;
+  const faceTurn = getBookFaceTurn(hoverMix, book.faceTurnMix) - getBookRotationOverride(index).y;
   const baseHalfSpan = getBookHalfSpan(book, hoverMix, leanAngle, pitchAngle, faceTurn);
   const leanShiftAbs = Math.abs(getLeanCenterShift(book, leanAngle, hoverMix));
   // Include lean-induced center translation in live collision envelope.
@@ -2348,7 +2349,7 @@ function createMatrixForBook(book, index, x, timeSeconds, projection, resolvedPo
     ? clamp(1 - ((state.initialLeanSettleUntil - timeSeconds) / 1.35), 0, 1)
     : 1;
   const desiredLean = rawDesiredLean * settleLeanMix;
-  const faceTurn = getBookFaceTurn(hoverMix) - rotationOverride.y;
+  const faceTurn = getBookFaceTurn(hoverMix, book.faceTurnMix) - rotationOverride.y;
   const hoverLift = hoverMix * 0.9;
   const rawLeanShift = getLeanCenterShift(book, desiredLean, hoverMix);
   const xTilt = getBookXTilt(index, book, timeSeconds, hoverMix, true);
@@ -2360,8 +2361,8 @@ function createMatrixForBook(book, index, x, timeSeconds, projection, resolvedPo
   const rightHoverMix = rightBook.hoverMix;
   const leftDesiredLean = getEffectiveZLean(leftIndex, leftBook, timeSeconds, leftHoverMix);
   const rightDesiredLean = getEffectiveZLean(rightIndex, rightBook, timeSeconds, rightHoverMix);
-  const leftFaceTurn = getBookFaceTurn(leftHoverMix) - getBookRotationOverride(leftIndex).y;
-  const rightFaceTurn = getBookFaceTurn(rightHoverMix) - getBookRotationOverride(rightIndex).y;
+  const leftFaceTurn = getBookFaceTurn(leftHoverMix, leftBook.faceTurnMix) - getBookRotationOverride(leftIndex).y;
+  const rightFaceTurn = getBookFaceTurn(rightHoverMix, rightBook.faceTurnMix) - getBookRotationOverride(rightIndex).y;
   const leftHalf = getBookHalfSpan(
     leftBook,
     leftHoverMix,
@@ -2480,6 +2481,8 @@ function render(now) {
     const target = state.hoverFocus && index === state.hoveredIndex ? 1 : 0;
     const easing = target > book.hoverMix ? state.hoverSpeed : state.returnSpeed;
     book.hoverMix += (target - book.hoverMix) * easing;
+    const faceTurnEasing = easing * 0.8;
+    book.faceTurnMix += (target - book.faceTurnMix) * faceTurnEasing;
   });
 
   const targetHoverLeanMix = getTargetGlobalHoverLeanMix();
@@ -3398,7 +3401,7 @@ function updateHoveredBook(clientX, clientY) {
       hoverMix,
       zLean,
       xTilt,
-      getBookFaceTurn(hoverMix) - getBookRotationOverride(index).y,
+      getBookFaceTurn(hoverMix, book.faceTurnMix) - getBookRotationOverride(index).y,
     ) / (-worldZ * tanHalfFov * aspect);
     const topClip = transformPoint(projectionWithRotation, [worldX, worldY + (book.height / 2), worldZ, 1]);
     const bottomClip = transformPoint(projectionWithRotation, [worldX, worldY - (book.height / 2), worldZ, 1]);
